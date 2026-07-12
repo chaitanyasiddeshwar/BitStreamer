@@ -9,7 +9,8 @@
   stock controller. IDs prefixed exo_ are wired automatically by Media3;
   btn_* are wired by PlayerActivity.
 -->
-<merge xmlns:android="http://schemas.android.com/apk/res/android">
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <View
         android:id="@id/exo_controls_background"
@@ -17,7 +18,9 @@
         android:layout_height="0dp"
         android:background="#66000000" />
 
-    <!-- Center transport controls: rewind / play-pause / fast-forward -->
+    <!-- Center transport controls: rewind / play-pause / fast-forward.
+         Each has a foreground focus ring so the selected control is visible on
+         TV (the Media3 button icons otherwise show no focus state). -->
     <LinearLayout
         android:id="@id/exo_center_controls"
         android:layout_width="wrap_content"
@@ -27,14 +30,34 @@
         android:clipToPadding="false"
         android:padding="16dp">
 
-        <include layout="@layout/exo_player_control_rewind_button" />
+        <FrameLayout
+            style="@style/ExoStyledControls.Button.Center"
+            android:addStatesFromChildren="true"
+            android:foreground="@drawable/control_focus_fg">
+
+            <Button
+                android:id="@id/exo_rew_with_amount"
+                style="@style/ExoStyledControls.Button.Center.RewWithAmount"
+                android:background="@drawable/exo_styled_controls_rewind"
+                android:singleLine="false" />
+        </FrameLayout>
 
         <ImageButton
             android:id="@id/exo_play_pause"
             style="@style/ExoStyledControls.Button.Center.PlayPause"
+            android:foreground="@drawable/control_focus_fg"
             android:nextFocusDown="@id/exo_progress" />
 
-        <include layout="@layout/exo_player_control_ffwd_button" />
+        <FrameLayout
+            style="@style/ExoStyledControls.Button.Center"
+            android:addStatesFromChildren="true"
+            android:foreground="@drawable/control_focus_fg">
+
+            <Button
+                android:id="@id/exo_ffwd_with_amount"
+                style="@style/ExoStyledControls.Button.Center.FfwdWithAmount"
+                android:background="@drawable/exo_styled_controls_fastforward" />
+        </FrameLayout>
     </LinearLayout>
 
     <!-- Bottom stack: time bar + options row -->
@@ -63,7 +86,9 @@
                 android:layout_height="26dp"
                 android:layout_weight="1"
                 android:nextFocusUp="@id/exo_play_pause"
-                android:nextFocusDown="@id/btn_audio" />
+                android:nextFocusDown="@id/btn_audio"
+                app:ad_marker_color="#FFFFFFFF"
+                app:played_ad_marker_color="#FFFFFFFF" />
 
             <TextView
                 android:id="@id/exo_duration"

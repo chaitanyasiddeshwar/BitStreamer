@@ -11,6 +11,7 @@
         android:layout_height="match_parent"
         android:keepScreenOn="true"
         app:show_buffering="when_playing"
+        app:animation_enabled="false"
         app:controller_layout_id="@layout/player_controls" />
 
     <TextView
