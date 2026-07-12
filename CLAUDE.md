@@ -15,7 +15,8 @@ media samples on the server, it is the wrong change.
 ## Repository layout
 
 ```
-server/   Go media server (stdlib + one vendored MKV parser; single bitstreamer.exe)
+server/   Go media server (stdlib + one vendored MKV parser; single self-contained
+          binary — bitstreamer.exe on Windows, bitstreamer on macOS/Linux)
 client/   Android TV app for Fire TV (Kotlin, Media3/ExoPlayer, Gradle)
 docs/     Project plan and design docs — read before implementing
 ```
@@ -41,9 +42,13 @@ Key docs:
 
 Server (from `server/`, works on macOS/Linux/Windows):
 ```
-go build -o bitstreamer .          # native binary for this machine
-go test ./...
-GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .   # Windows binary from anywhere
+make                # native binary for this machine (bitstreamer / bitstreamer.exe)
+make windows        # dist/bitstreamer.exe          (Windows x64, from any host)
+make darwin         # dist/bitstreamer-macos        (universal arm64+x64, macOS host)
+make test
+# Windows without make: run build.bat. Or use go directly:
+go build -o bitstreamer .
+GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .
 ```
 
 Client (from `client/`; on Windows use `gradlew.bat`):

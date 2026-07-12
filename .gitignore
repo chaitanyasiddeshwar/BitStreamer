@@ -1,6 +1,8 @@
 # Build outputs
 server/bitstreamer
 server/bitstreamer.exe
+server/bitstreamer-*
+server/dist/
 client.apk
 *.apk
 client-logs.txt

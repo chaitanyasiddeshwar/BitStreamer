@@ -10,12 +10,17 @@ audio bitstreamed over HDMI to your TV or AV receiver.
 
 ## Quick start
 
-**1. Build the server** (any OS; Go ≥ 1.23):
+**1. Build the server** (any OS; Go ≥ 1.23). It's pure Go and runs on Windows, macOS,
+and Linux:
 
 ```
 cd server
-GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .
+make windows     # dist/bitstreamer.exe   (Windows x64, from any host)
+make darwin      # dist/bitstreamer-macos (universal arm64+x64, on a Mac)
+make             # native binary for the current machine
 ```
+
+On Windows without `make`, run `build.bat` (produces `bitstreamer.exe`).
 
 **2. Build the client** (Android Studio, or `gradlew.bat assembleRelease` in `client/`),
 then copy `client/app/build/outputs/apk/release/app-release.apk` next to
