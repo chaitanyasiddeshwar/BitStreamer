@@ -24,7 +24,8 @@ func newTestApp(t *testing.T) (*app, []byte) {
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newApp(path, "TestServer", filepath.Join(dir, "client.apk"), 46898)
+	a, err := newApp(path, "TestServer", filepath.Join(dir, "client.apk"),
+		filepath.Join(dir, "client-logs.txt"), 46898)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +180,43 @@ func TestAPKServed(t *testing.T) {
 	}
 	if got := resp.Header.Get("Content-Type"); got != "application/vnd.android.package-archive" {
 		t.Errorf("Content-Type = %q", got)
+	}
+}
+
+func TestClientLog(t *testing.T) {
+	a, _ := newTestApp(t)
+	srv := httptest.NewServer(a.handler())
+	defer srv.Close()
+
+	for _, batch := range []string{"line one\nline two", "line three\n"} {
+		resp, err := http.Post(srv.URL+"/log", "text/plain", strings.NewReader(batch))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", resp.StatusCode)
+		}
+	}
+
+	content, err := os.ReadFile(a.clientLogPath)
+	if err != nil {
+		t.Fatalf("client log file not written: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"line one", "line two", "line three", "===="} {
+		if !strings.Contains(text, want) {
+			t.Errorf("client log missing %q; got:\n%s", want, text)
+		}
+	}
+
+	resp, err := http.Get(srv.URL + "/log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET /log status = %d, want 405", resp.StatusCode)
 	}
 }
 

@@ -98,6 +98,7 @@ Exit on Ctrl+C. If the file doesn't exist or isn't readable: clear error, exit 1
 | `GET /info` | JSON: `{"v":1, "name":"<display-name>", "file":"film.mkv", "size":123456789, "mime":"video/x-matroska"}` |
 | `GET /stream` | The file bytes. **Must** support: `Accept-Ranges: bytes`, single-range `Range` requests → `206` with correct `Content-Range`, full requests → `200`, `HEAD`. Correct `Content-Type` by extension (`.mp4`→`video/mp4`, `.mkv`→`video/x-matroska`, `.mov`→`video/quicktime`, else `application/octet-stream`) — set explicitly; don't rely on OS mime tables for `.mkv`. Implemented with `http.ServeContent` (streams from the open file, never loads it into memory). |
 | `GET /client.apk` | The APK (`application/vnd.android.package-archive`). Default path: `client.apk` next to the exe; overridable with `--apk`. 404 with a helpful body if missing. |
+| `POST /log` | Client diagnostics channel: appends the plain-text body to `client-logs.txt` next to the exe (`--clientlog` to override), with a timestamp/remote-addr header per batch. The Fire TV client's `RemoteLog` batches its playback logs here so issues can be diagnosed from the PC without adb. |
 | `GET /` | Minimal HTML status page: file name/size, stream URL, APK URL. Sanity-check target for a browser. |
 
 Range support is the part to get right: **seeking on the client is entirely dependent on
@@ -251,8 +252,9 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
 - **R2 — Lossless formats are platform-capped, not app-fixable.** Fire TV sticks pass
   DTS-HD as **DTS core** in normal apps (only Kodi's IEC-packing achieves full DTS-HD MA);
   TrueHD passthrough exists only on the 4K Max 2nd gen. This is a hardware/OS ceiling
-  shared by Emby/Jellyfin/Plex. **Accepted limitation** — document it; DTS core / DD+ is
-  what those clients deliver too.
+  shared by Emby/Jellyfin/Plex. DTS-HD → DTS-core is now **implemented** in the client
+  (`DtsCoreAudioSink`, see AUDIO_PASSTHROUGH.md §7); the remaining lossless gap
+  (full MA/TrueHD) stays an accepted limitation.
 - **R3 — Unplayable audio track** (e.g. TrueHD file, no passthrough, no device decoder).
   With no transcoder there is no rescue. Mitigation: detect at track selection, show
   "audio format X not supported by this device/sink — pick another audio track", and prefer

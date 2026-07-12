@@ -74,6 +74,11 @@ broadcast (port 46899); HTTP serves on 46898.
 - Client: all playback configuration lives in one factory (`PlayerFactory`); never scatter
   ExoPlayer tweaks across activities. Log the negotiated audio pipeline on every playback
   start (see AUDIO_PASSTHROUGH.md §Verification).
+- Client diagnostics go through `RemoteLog` (tees logcat + `POST /log` to the server,
+  which appends to `client-logs.txt` next to the exe). Log every audio-pipeline decision
+  there — it is the only visibility into the Fire TV without adb.
+- DTS-HD plays via DTS-core extraction in `DtsCoreAudioSink` (AUDIO_PASSTHROUGH.md §7);
+  don't "simplify" it to a plain `DefaultAudioSink`.
 - Testing anything audio-related requires real hardware (Fire TV stick + AVR/TV that shows
   the incoming format). Emulators cannot verify passthrough — don't claim it works from an
   emulator run.

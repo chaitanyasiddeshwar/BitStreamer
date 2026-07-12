@@ -22,6 +22,7 @@ func main() {
 	port := flag.Int("port", defaultHTTPPort, "HTTP port to serve on")
 	name := flag.String("name", "", "display name announced to clients (default: hostname)")
 	apk := flag.String("apk", "", "path to the client APK served at /client.apk (default: client.apk next to the executable)")
+	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
@@ -40,16 +41,18 @@ func main() {
 		}
 		*name = host
 	}
+	exeDir := "."
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
 	if *apk == "" {
-		exe, err := os.Executable()
-		if err == nil {
-			*apk = filepath.Join(filepath.Dir(exe), "client.apk")
-		} else {
-			*apk = "client.apk"
-		}
+		*apk = filepath.Join(exeDir, "client.apk")
+	}
+	if *clientLog == "" {
+		*clientLog = filepath.Join(exeDir, "client-logs.txt")
 	}
 
-	app, err := newApp(flag.Arg(0), *name, *apk, *port)
+	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -66,6 +69,7 @@ func main() {
 		fmt.Printf("  stream  http://%s:%d/stream\n", ip, app.httpPort)
 		fmt.Printf("  client  http://%s:%d/client.apk\n\n", ip, app.httpPort)
 	}
+	fmt.Printf("Client diagnostics will be appended to %s\n\n", app.clientLogPath)
 	fmt.Println("Waiting for a client to connect... (Ctrl+C to stop)")
 
 	addr := fmt.Sprintf(":%d", app.httpPort)

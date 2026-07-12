@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,9 +25,12 @@ type app struct {
 	displayName string
 	apkPath     string
 	httpPort    int
+
+	clientLogPath string
+	clientLogMu   sync.Mutex
 }
 
-func newApp(mediaPath, displayName, apkPath string, httpPort int) (*app, error) {
+func newApp(mediaPath, displayName, apkPath, clientLogPath string, httpPort int) (*app, error) {
 	info, err := os.Stat(mediaPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open media file: %w", err)
@@ -34,14 +39,15 @@ func newApp(mediaPath, displayName, apkPath string, httpPort int) (*app, error) 
 		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
 	}
 	return &app{
-		mediaPath:   mediaPath,
-		mediaName:   filepath.Base(mediaPath),
-		mediaSize:   info.Size(),
-		mediaMod:    info.ModTime(),
-		mediaMime:   mimeForPath(mediaPath),
-		displayName: displayName,
-		apkPath:     apkPath,
-		httpPort:    httpPort,
+		mediaPath:     mediaPath,
+		mediaName:     filepath.Base(mediaPath),
+		mediaSize:     info.Size(),
+		mediaMod:      info.ModTime(),
+		mediaMime:     mimeForPath(mediaPath),
+		displayName:   displayName,
+		apkPath:       apkPath,
+		httpPort:      httpPort,
+		clientLogPath: clientLogPath,
 	}, nil
 }
 
@@ -68,6 +74,7 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/info", a.handleInfo)
 	mux.HandleFunc("/stream", a.handleStream)
 	mux.HandleFunc("/client.apk", a.handleAPK)
+	mux.HandleFunc("/log", a.handleClientLog)
 	return logRequests(mux)
 }
 
@@ -115,6 +122,41 @@ func (a *app) handleAPK(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", info.ModTime(), f)
 }
 
+// handleClientLog appends diagnostic log batches POSTed by the Fire TV client
+// to a file on disk, so playback issues can be inspected on the PC.
+func (a *app) handleClientLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "POST plain-text log lines here", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+	if len(body) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	a.clientLogMu.Lock()
+	defer a.clientLogMu.Unlock()
+	f, err := os.OpenFile(a.clientLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		http.Error(w, "cannot open client log file", http.StatusInternalServerError)
+		log.Printf("client log: %v", err)
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "==== %s %s ====\n", time.Now().Format(time.RFC3339), r.RemoteAddr)
+	f.Write(body)
+	if body[len(body)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -129,8 +171,10 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
   <li><a href="/stream">/stream</a> &mdash; the media file (Range supported)</li>
   <li><a href="/info">/info</a> &mdash; media metadata (JSON)</li>
   <li><a href="/client.apk">/client.apk</a> &mdash; Fire TV client APK</li>
+  <li><code>POST /log</code> &mdash; client diagnostics, appended to <code>%s</code></li>
 </ul>
-`, html.EscapeString(a.displayName), html.EscapeString(a.mediaName), formatSize(a.mediaSize), a.mediaMime)
+`, html.EscapeString(a.displayName), html.EscapeString(a.mediaName), formatSize(a.mediaSize),
+		a.mediaMime, html.EscapeString(a.clientLogPath))
 }
 
 // statusWriter captures the response code for request logging.

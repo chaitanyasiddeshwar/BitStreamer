@@ -7,6 +7,8 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 
 /**
  * The single place ExoPlayer is configured. The choices here exist to keep
@@ -19,8 +21,17 @@ object PlayerFactory {
     fun create(context: Context): ExoPlayer {
         // EXTENSION_RENDERER_MODE_OFF: no software decoders that could outrank
         // the passthrough path. Decoder fallback stays on so a broken decoder
-        // doesn't kill playback outright.
-        val renderersFactory = DefaultRenderersFactory(context)
+        // doesn't kill playback outright. The audio sink is wrapped so DTS-HD
+        // tracks bitstream their DTS core when the sink lacks ENCODING_DTS_HD.
+        val renderersFactory = object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink? {
+                return DtsCoreAudioSink(DefaultAudioSink.Builder(context).build())
+            }
+        }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
 

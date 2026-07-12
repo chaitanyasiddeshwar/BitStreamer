@@ -44,5 +44,11 @@ overlay, Back = stop.
 
 For bitstreamed surround sound, set Fire TV **Settings → Display & Sounds → Audio →
 Surround Sound** to **Best Available**, and verify the format on your AVR/TV display.
-Known platform limits (not fixable by any app): DTS-HD passes as DTS core; TrueHD only
-on Fire TV Stick 4K Max 2nd gen. Details in [docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
+DTS-HD tracks are bitstreamed as **DTS core** (extracted on the fly — same approach as
+Plex/Kodi), since Fire TV never exposes full DTS-HD passthrough to apps; TrueHD works
+only on the Fire TV Stick 4K Max 2nd gen. Details in
+[docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
+
+**Troubleshooting**: the client streams its playback diagnostics to the server, which
+appends them to `client-logs.txt` next to `bitstreamer.exe` — check that file (or share
+it) when something doesn't play or the audio format looks wrong.

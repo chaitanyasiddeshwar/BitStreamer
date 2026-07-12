@@ -112,3 +112,46 @@ the physical stick plugged into the actual TV/AVR chain.
   a bug (Media3 handles the fallback since [ExoPlayer #6073](https://github.com/google/ExoPlayer/issues/6073)).
 - **DTS-HD extraction**: fixed in recent Media3 (core+extension substreams combined into
   one sample) — one more reason to stay on the latest stable (1.10.x as of mid-2026).
+
+## 7. DTS-HD strategy: core extraction (`DtsCoreAudioSink`)
+
+Why DTS-HD MA fails out of the box: Media3's extractors *analyze* `A_DTS` tracks
+(`DtsUtil.isSampleDtsHd`) and relabel DTS-HD content `audio/vnd.dts.hd`. Playing that
+needs an `ENCODING_DTS_HD` passthrough AudioTrack — which Fire TV never advertises — or a
+platform DTS-HD decoder, which the sticks don't have either. Net result: the track is
+unplayable and players like Emby fall back to server-side transcoding. We have no
+transcoder, so the client fixes it the way Plex and Kodi's "DTS core" mode do
+([Plex forum confirmation](https://forums.plex.tv/t/dts-hd-passthrough-not-working-on-new-fire-tv-cube-3rd/825191/55)).
+
+The key property: **every DTS-HD MA frame begins with a self-contained,
+backward-compatible DTS core frame** (48 kHz, up to 5.1, sync `0x7FFE8001`), followed by
+extension substreams (sync `0x64582025`) carrying the lossless/extra-channel data.
+Truncate each sample to its core frames and you have a valid plain-DTS stream any
+DTS-capable sink accepts as `ENCODING_DTS`.
+
+`DtsCoreAudioSink` (a `ForwardingAudioSink` around `DefaultAudioSink`) implements this:
+
+- `getFormatSupport()`: claims support for `audio/vnd.dts.hd` when the inner sink
+  supports the equivalent DTS-core format — this is what makes the track selectable and
+  routes it through ExoPlayer's decoder-less bypass path.
+- `configure()`: prefers the direct path (true DTS-HD passthrough if the platform ever
+  advertises it), else configures the inner sink with the core format
+  (`audio/vnd.dts`, ≤48 kHz, ≤6ch).
+- `handleBuffer()`: truncates each sample **in place** to its core frame(s) using
+  `DtsUtil.getFrameType`/`getDtsFrameSize`. In-place matters: `DefaultAudioSink` requires
+  a retried buffer to be the identical instance, so the sink never allocates and never
+  re-transforms a pending buffer.
+- DTS Express (`A_DTS/EXPRESS`) has *no* core substream — such samples are skipped with a
+  log line rather than fed to a DTS AudioTrack. Rare in practice; revisit only if it
+  shows up in logs.
+
+What full DTS-HD MA would take (out of scope): Kodi bypasses Android's encoding checks by
+hand-packing IEC 61937 bursts into a multichannel PCM track ("IEC packer") — fragile,
+device-specific, and the only known way on Fire TV. If ever attempted, it's a new sink
+mode behind a setting, not a change to the core-extraction path.
+
+Diagnostics: everything the audio pipeline decides is logged via `RemoteLog`, which the
+server appends to `client-logs.txt` next to `bitstreamer.exe` (`POST /log`). For a DTS
+issue, that file answers: what mime the extractor produced, what the sink chose
+(direct/core-extraction/decoder), what AudioTrack encoding was opened, and any sink error
+with stack trace.
