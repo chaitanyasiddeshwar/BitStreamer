@@ -30,6 +30,7 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
     private var pendingBuffer: ByteBuffer? = null
     private var warnedNoCore = false
     private var strippedSamples = 0L
+    private var consecutiveSkipped = 0
 
     override fun supportsFormat(format: Format): Boolean =
         getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
@@ -50,6 +51,7 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
     ) {
         pendingBuffer = null
         strippedSamples = 0
+        consecutiveSkipped = 0
         warnedNoCore = false
         if (isDtsHd(inputFormat)) {
             val coreFormat = toCoreFormat(inputFormat)
@@ -94,10 +96,23 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
                 // a DTS AudioTrack.
                 if (!warnedNoCore) {
                     warnedNoCore = true
-                    RemoteLog.d(TAG, "sample without DTS core frame; skipping (DTS Express-only stream?)")
+                    RemoteLog.d(
+                        TAG,
+                        "sample without DTS core frame; skipping. first bytes: ${hexPrefix(buffer)}"
+                    )
+                }
+                consecutiveSkipped++
+                if (consecutiveSkipped >= MAX_CONSECUTIVE_SKIPS) {
+                    // Every sample coreless: skipping forever would hang the
+                    // player at 0 (audio is the master clock). Fail visibly.
+                    val message = "DTS track has no extractable core frames " +
+                        "(pure XLL/Express stream?); select another audio track"
+                    RemoteLog.d(TAG, message)
+                    throw IllegalStateException(message)
                 }
                 return true
             }
+            consecutiveSkipped = 0
             pendingBuffer = buffer
         }
         val handled = super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
@@ -127,7 +142,10 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
         var write = start
         val header = ByteArray(HEADER_SIZE)
         while (read + HEADER_SIZE <= limit) {
-            val frameType = DtsUtil.getFrameType(buffer.getInt(read))
+            // Assemble the sync word byte-wise: sample buffers use native byte
+            // order (little-endian on ARM), so ByteBuffer.getInt would return
+            // a swapped word that matches no DtsUtil sync constant.
+            val frameType = DtsUtil.getFrameType(wordAt(buffer, read))
             if (frameType == DtsUtil.FRAME_TYPE_EXTENSION_SUBSTREAM && write > start) {
                 // Core copied and the extension substream follows; extensions
                 // run to the end of the sample — done. (Also avoids treating
@@ -163,6 +181,22 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
         return true
     }
 
+    /** Big-endian 32-bit word at [index], independent of the buffer's byte order. */
+    private fun wordAt(buffer: ByteBuffer, index: Int): Int =
+        ((buffer.get(index).toInt() and 0xFF) shl 24) or
+            ((buffer.get(index + 1).toInt() and 0xFF) shl 16) or
+            ((buffer.get(index + 2).toInt() and 0xFF) shl 8) or
+            (buffer.get(index + 3).toInt() and 0xFF)
+
+    private fun hexPrefix(buffer: ByteBuffer): String {
+        val sb = StringBuilder()
+        val end = minOf(buffer.position() + 16, buffer.limit())
+        for (i in buffer.position() until end) {
+            sb.append(String.format("%02X ", buffer.get(i)))
+        }
+        return sb.toString().trim()
+    }
+
     private fun isDtsHd(format: Format): Boolean =
         MimeTypes.AUDIO_DTS_HD == format.sampleMimeType ||
             MimeTypes.AUDIO_DTS_EXPRESS == format.sampleMimeType
@@ -186,6 +220,7 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
     companion object {
         private const val TAG = "DtsCoreAudioSink"
         private const val HEADER_SIZE = 10 // bytes DtsUtil.getDtsFrameSize reads
+        private const val MAX_CONSECUTIVE_SKIPS = 100 // ~1s of coreless samples -> error, not a hang
 
         // Fire TV advertises ENCODING_DTS_HD in its HDMI caps, but the actual
         // DTS-HD passthrough path does not work for apps: the AudioTrack opens
