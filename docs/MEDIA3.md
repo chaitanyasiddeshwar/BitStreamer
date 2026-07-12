@@ -35,6 +35,11 @@ Media3 does the heavy lifting.
 - Track selection UI (audio via settings button, subtitles via CC button)
 - Embedded subtitle extraction + rendering (SRT/ASS/PGS from MKV)
 - Seek increments, controller overlay, `show_buffering`, D-pad key mapping
+- Custom controller layout (`player_controls.xml`) for the TV D-pad focus layers
+- Seek-bar chapter ticks via `setExtraAdGroupMarkers`, and `TrackSelectionDialogBuilder`
+  for the audio/subtitle pickers
+- On-device chapter thumbnails via `MediaMetadataRetriever` (not a Media3 API, but the
+  same hardware decoder path)
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 

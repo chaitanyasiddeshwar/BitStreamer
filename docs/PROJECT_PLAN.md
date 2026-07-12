@@ -101,6 +101,7 @@ Exit on Ctrl+C. If the file doesn't exist or isn't readable: clear error, exit 1
 | `GET /stream` | The file bytes. **Must** support: `Accept-Ranges: bytes`, single-range `Range` requests → `206` with correct `Content-Range`, full requests → `200`, `HEAD`. Correct `Content-Type` by extension (`.mp4`→`video/mp4`, `.mkv`→`video/x-matroska`, `.mov`→`video/quicktime`, else `application/octet-stream`) — set explicitly; don't rely on OS mime tables for `.mkv`. Implemented with `http.ServeContent` (streams from the open file, never loads it into memory). |
 | `GET /client.apk` | The APK (`application/vnd.android.package-archive`). Default path: `client.apk` next to the exe; overridable with `--apk`. 404 with a helpful body if missing. |
 | `POST /log` | Client diagnostics channel: appends the plain-text body to `client-logs.txt` next to the exe (`--clientlog` to override), with a timestamp/remote-addr header per batch. The Fire TV client's `RemoteLog` batches its playback logs here so issues can be diagnosed from the PC without adb. |
+| `GET /info` (chapters) | `/info` also carries `"chapters": [{"startMs":N,"name":"…"}]` parsed from the MKV at startup (vendored `go-mkvparse`, default edition, hidden chapters skipped). Empty array when the file has none. The client draws seek-bar ticks and a chapter selector from this. |
 | `GET/POST /position` | Resume support, keyed by client IP. `POST ?ms=N` stores the playback position (client heartbeats every 5 s and reports on stop; `ms=0` clears — sent when playback finishes). `GET` returns `{"v":1,"file":…,"positionMs":N}`; the client offers "Resume from X / Start from beginning" when N ≥ 10 s. Persisted to `resume.json` next to the exe (`--resumefile`), invalidated automatically when the server is started with a different file. |
 | `GET /` | Minimal HTML status page: file name/size, stream URL, APK URL. Sanity-check target for a browser. |
 
@@ -289,6 +290,11 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
 - **Resume where you left off** (per client IP, `resume.json`, cleared on file switch)
 - **Subtitle track selector** (controller CC button; MKV SRT/ASS/PGS)
 - **TV-correct Back behavior** (dismiss controller overlay before exiting)
+- **MKV chapters**: server parses markers (`chapters.go` + vendored `go-mkvparse`), client
+  shows seek-bar ticks and a chapter selector with on-device thumbnails
+  (`ChapterThumbnailLoader`, Option A — `MediaMetadataRetriever` on the stick)
+- **D-pad controller redesign**: time bar is default focus (left/right scrubs), Up →
+  play/pause, Down → Audio/Subtitles/Chapters option row (custom `player_controls.xml`)
 
 ## 9. Future candidates
 

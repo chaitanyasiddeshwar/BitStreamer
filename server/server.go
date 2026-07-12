@@ -31,6 +31,7 @@ type app struct {
 	clientLogPath string
 	clientLogMu   sync.Mutex
 	resume        *resumeStore
+	chapters      []Chapter
 }
 
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int) (*app, error) {
@@ -52,6 +53,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		httpPort:      httpPort,
 		clientLogPath: clientLogPath,
 		resume:        newResumeStore(resumePath, mediaPath),
+		chapters:      parseChapters(mediaPath),
 	}, nil
 }
 
@@ -84,13 +86,18 @@ func (a *app) handler() http.Handler {
 }
 
 func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
+	chapters := a.chapters
+	if chapters == nil {
+		chapters = []Chapter{} // emit [] not null
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":    1,
-		"name": a.displayName,
-		"file": a.mediaName,
-		"size": a.mediaSize,
-		"mime": a.mediaMime,
+		"v":        1,
+		"name":     a.displayName,
+		"file":     a.mediaName,
+		"size":     a.mediaSize,
+		"mime":     a.mediaMime,
+		"chapters": chapters,
 	})
 }
 

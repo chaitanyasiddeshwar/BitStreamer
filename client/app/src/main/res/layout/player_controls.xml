@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom Media3 controller layout. Based on the default styled controller, but
+  reordered/trimmed for TV D-pad use (see PlayerActivity + docs/MEDIA3.md):
+    time bar  = default focus  -> D-pad LEFT/RIGHT scrubs
+    UP        -> center play/pause row
+    DOWN      -> options row (Audio / Subtitles / Chapters)
+  Reuses Media3's own button includes and styles so icons/behavior match the
+  stock controller. IDs prefixed exo_ are wired automatically by Media3;
+  btn_* are wired by PlayerActivity.
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <View
+        android:id="@id/exo_controls_background"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#66000000" />
+
+    <!-- Center transport controls: rewind / play-pause / fast-forward -->
+    <LinearLayout
+        android:id="@id/exo_center_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:clipToPadding="false"
+        android:padding="16dp">
+
+        <include layout="@layout/exo_player_control_rewind_button" />
+
+        <ImageButton
+            android:id="@id/exo_play_pause"
+            style="@style/ExoStyledControls.Button.Center.PlayPause"
+            android:nextFocusDown="@id/exo_progress" />
+
+        <include layout="@layout/exo_player_control_ffwd_button" />
+    </LinearLayout>
+
+    <!-- Bottom stack: time bar + options row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#66000000"
+        android:paddingHorizontal="24dp"
+        android:paddingVertical="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@id/exo_position"
+                style="@style/ExoStyledControls.TimeText.Position" />
+
+            <androidx.media3.ui.DefaultTimeBar
+                android:id="@id/exo_progress"
+                android:layout_width="0dp"
+                android:layout_height="26dp"
+                android:layout_weight="1"
+                android:nextFocusUp="@id/exo_play_pause"
+                android:nextFocusDown="@id/btn_audio" />
+
+            <TextView
+                android:id="@id/exo_duration"
+                style="@style/ExoStyledControls.TimeText.Duration" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/options_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_audio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/options_btn_bg"
+                android:nextFocusUp="@id/exo_progress"
+                android:nextFocusRight="@id/btn_subtitles"
+                android:text="@string/opt_audio"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btn_subtitles"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/options_btn_bg"
+                android:nextFocusUp="@id/exo_progress"
+                android:nextFocusLeft="@id/btn_audio"
+                android:nextFocusRight="@id/btn_chapters"
+                android:text="@string/opt_subtitles"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btn_chapters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/options_btn_bg"
+                android:nextFocusUp="@id/exo_progress"
+                android:nextFocusLeft="@id/btn_subtitles"
+                android:text="@string/opt_chapters"
+                android:textColor="#FFFFFF"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+</merge>

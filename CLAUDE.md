@@ -15,7 +15,7 @@ media samples on the server, it is the wrong change.
 ## Repository layout
 
 ```
-server/   Go media server (pure stdlib, cross-compiles to a single bitstreamer.exe)
+server/   Go media server (stdlib + one vendored MKV parser; single bitstreamer.exe)
 client/   Android TV app for Fire TV (Kotlin, Media3/ExoPlayer, Gradle)
 docs/     Project plan and design docs — read before implementing
 ```
@@ -70,9 +70,12 @@ broadcast (port 46899); HTTP serves on 46898.
   discovery and firewall rules depend on them.
 - Discovery and `/info` payloads are versioned JSON (`"v": 1`). Additive changes only;
   bump `v` on breaking changes.
-- Server code: Go stdlib only — adding a dependency needs a written reason in this file.
-  No global state beyond the single served-file config; keep it small enough to audit in
-  one sitting.
+- Server code: Go stdlib only, with one vetted exception — the pure-Go, MIT
+  `go-mkvparse` parser is **vendored** in `server/third_party/mkvparse/` (used by
+  `chapters.go` to read MKV chapter markers; reason: EBML binary parsing is fiddly and a
+  parser bug already bit us once on the client). It is stdlib-only itself, so the single
+  static exe and cross-compile are unaffected. Any *further* dependency needs a written
+  reason here. No global state beyond the single served-file config.
 - Client: all playback configuration lives in one factory (`PlayerFactory`); never scatter
   ExoPlayer tweaks across activities. Log the negotiated audio pipeline on every playback
   start (see AUDIO_PASSTHROUGH.md §Verification).

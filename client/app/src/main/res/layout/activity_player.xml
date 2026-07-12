@@ -11,7 +11,7 @@
         android:layout_height="match_parent"
         android:keepScreenOn="true"
         app:show_buffering="when_playing"
-        app:show_subtitle_button="true" />
+        app:controller_layout_id="@layout/player_controls" />
 
     <TextView
         android:id="@+id/debug_overlay"
