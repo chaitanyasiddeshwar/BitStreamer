@@ -32,6 +32,7 @@ type app struct {
 	clientLogMu   sync.Mutex
 	resume        *resumeStore
 	chapters      []Chapter
+	thumbs        *thumbnailer
 }
 
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int) (*app, error) {
@@ -42,6 +43,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	if info.IsDir() {
 		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
 	}
+	chapters := parseChapters(mediaPath)
 	return &app{
 		mediaPath:     mediaPath,
 		mediaName:     filepath.Base(mediaPath),
@@ -53,7 +55,8 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		httpPort:      httpPort,
 		clientLogPath: clientLogPath,
 		resume:        newResumeStore(resumePath, mediaPath),
-		chapters:      parseChapters(mediaPath),
+		chapters:      chapters,
+		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters),
 	}, nil
 }
 
@@ -82,6 +85,7 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/client.apk", a.handleAPK)
 	mux.HandleFunc("/log", a.handleClientLog)
 	mux.HandleFunc("/position", a.handlePosition)
+	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
 	return logRequests(mux)
 }
 
@@ -92,12 +96,13 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":        1,
-		"name":     a.displayName,
-		"file":     a.mediaName,
-		"size":     a.mediaSize,
-		"mime":     a.mediaMime,
-		"chapters": chapters,
+		"v":          1,
+		"name":       a.displayName,
+		"file":       a.mediaName,
+		"size":       a.mediaSize,
+		"mime":       a.mediaMime,
+		"chapters":   chapters,
+		"thumbnails": a.thumbs.available(),
 	})
 }
 
@@ -197,6 +202,24 @@ func (a *app) handlePosition(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleChapterThumb serves the JPEG thumbnail for ?index=N, generating it via
+// ffmpeg on first request. 404 when ffmpeg is absent or the index is invalid.
+func (a *app) handleChapterThumb(w http.ResponseWriter, r *http.Request) {
+	index, err := strconv.Atoi(r.URL.Query().Get("index"))
+	if err != nil {
+		http.Error(w, "index must be an integer", http.StatusBadRequest)
+		return
+	}
+	path, err := a.thumbs.get(index)
+	if err != nil {
+		http.Error(w, "thumbnail unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "max-age=86400")
+	http.ServeFile(w, r, path)
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {

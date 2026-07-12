@@ -13,15 +13,16 @@ import com.bitstreamer.client.playback.ChapterThumbnailLoader
 import java.util.concurrent.TimeUnit
 
 /**
- * Backs the chapter selector ListView: thumbnail + name + timestamp per row.
- * Thumbnails load asynchronously via [thumbnails]; rows are tagged with their
- * requested time so recycled views don't show a stale image.
+ * Backs the chapter selector ListView: name + timestamp per row, plus a
+ * server-generated thumbnail when [thumbnails] is non-null. When it is null
+ * (server has no ffmpeg) the thumbnail image is removed and rows are a compact
+ * name + time list. Thumbnails load asynchronously by chapter index; rows are
+ * tagged so recycled views don't show a stale image.
  */
 class ChapterListAdapter(
     context: Context,
     private val chapters: List<ServerApi.Chapter>,
-    private val thumbnails: ChapterThumbnailLoader,
-    private val durationMs: Long,
+    private val thumbnails: ChapterThumbnailLoader?,
 ) : BaseAdapter() {
 
     private val inflater = LayoutInflater.from(context)
@@ -38,18 +39,16 @@ class ChapterListAdapter(
         view.findViewById<TextView>(R.id.chapter_time).text = formatTime(chapter.startMs)
 
         val thumb = view.findViewById<ImageView>(R.id.chapter_thumb)
-        // A few seconds in avoids black fade-in frames, clamped inside the chapter.
-        val ceiling = if (durationMs > 0) durationMs - 1000 else Long.MAX_VALUE
-        val nextStart = chapters.getOrNull(position + 1)?.startMs ?: Long.MAX_VALUE
-        val thumbTime = (chapter.startMs + THUMB_OFFSET_MS)
-            .coerceAtMost(minOf(ceiling, nextStart - 1000))
-            .coerceAtLeast(chapter.startMs)
-
-        thumb.setImageDrawable(null)
-        thumb.tag = thumbTime
-        thumbnails.request(thumbTime) { bitmap ->
-            if (bitmap != null && thumb.tag == thumbTime) {
-                thumb.setImageBitmap(bitmap)
+        if (thumbnails == null) {
+            thumb.visibility = View.GONE // name-only rows when the server has no thumbnails
+        } else {
+            thumb.visibility = View.VISIBLE
+            thumb.setImageDrawable(null)
+            thumb.tag = position
+            thumbnails.request(position) { bitmap ->
+                if (bitmap != null && thumb.tag == position) {
+                    thumb.setImageBitmap(bitmap)
+                }
             }
         }
         return view
@@ -61,9 +60,5 @@ class ChapterListAdapter(
         val s = TimeUnit.MILLISECONDS.toSeconds(ms) % 60
         return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
         else String.format("%d:%02d", m, s)
-    }
-
-    companion object {
-        private const val THUMB_OFFSET_MS = 5_000L
     }
 }

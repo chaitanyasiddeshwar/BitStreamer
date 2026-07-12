@@ -53,7 +53,8 @@ class PlayerActivity : Activity() {
     private var chaptersDialog: AlertDialog? = null
     private var chapters: List<ServerApi.Chapter> = emptyList()
     private var thumbnailLoader: ChapterThumbnailLoader? = null
-    private var streamUrl: String = ""
+    private var hasThumbnails = false
+    private var baseUrl: String = ""
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val reportPosition = object : Runnable {
@@ -82,20 +83,20 @@ class PlayerActivity : Activity() {
             finish()
             return
         }
-        streamUrl = url
         val uri = Uri.parse(url)
-        val baseUrl = "http://${uri.host}:${uri.port}"
+        baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
         RemoteLog.init(baseUrl)
-        // Ask the server for the resume position and chapter markers before
-        // starting playback (both are cheap /position + /info reads).
+        // Ask the server for the resume position and chapter/thumbnail info
+        // before starting playback (cheap /position + /info reads).
         Thread {
             val a = api
             val resumeMs = a?.getResumePositionMs() ?: 0
-            val chaptersList = a?.getChapters() ?: emptyList()
+            val info = a?.getInfo()
             mainHandler.post {
                 if (!isFinishing) {
-                    chapters = chaptersList
+                    chapters = info?.chapters ?: emptyList()
+                    hasThumbnails = info?.thumbnailsAvailable ?: false
                     initializePlayer(url, resumeMs)
                 }
             }
@@ -134,7 +135,7 @@ class PlayerActivity : Activity() {
         val exoPlayer = PlayerFactory.create(this)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
-        setupControls(url)
+        setupControls()
 
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioTrackInitialized(
@@ -230,7 +231,7 @@ class PlayerActivity : Activity() {
      * D-pad left/right scrubs), and connects the Audio/Subtitles/Chapters
      * option row. See docs/MEDIA3.md for the D-pad layer design.
      */
-    private fun setupControls(url: String) {
+    private fun setupControls() {
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE) {
@@ -269,8 +270,8 @@ class PlayerActivity : Activity() {
             val times = chapters.map { it.startMs }.toLongArray()
             playerView.setExtraAdGroupMarkers(times, BooleanArray(times.size))
             thumbnailLoader?.release()
-            thumbnailLoader = ChapterThumbnailLoader(url)
-            RemoteLog.d(TAG, "chapters: ${chapters.size} markers set")
+            thumbnailLoader = if (hasThumbnails) ChapterThumbnailLoader(baseUrl) else null
+            RemoteLog.d(TAG, "chapters: ${chapters.size}, thumbnails=$hasThumbnails")
         } else {
             btnChapters?.visibility = View.GONE
         }
@@ -288,9 +289,8 @@ class PlayerActivity : Activity() {
     private fun showChaptersDialog() {
         val p = player ?: return
         if (chapters.isEmpty()) return
-        val loader = thumbnailLoader ?: ChapterThumbnailLoader(streamUrl).also { thumbnailLoader = it }
         val listView = ListView(this)
-        listView.adapter = ChapterListAdapter(this, chapters, loader, p.duration.coerceAtLeast(0))
+        listView.adapter = ChapterListAdapter(this, chapters, thumbnailLoader)
         listView.setOnItemClickListener { _, _, position, _ ->
             p.seekTo(chapters[position].startMs)
             p.playWhenReady = true

@@ -51,6 +51,11 @@ Plex/Kodi), since Fire TV never exposes full DTS-HD passthrough to apps; TrueHD 
 only on the Fire TV Stick 4K Max 2nd gen. Details in
 [docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
 
+**Chapter thumbnails (optional)**: drop `ffmpeg.exe` next to `bitstreamer.exe` and the
+server generates a thumbnail per chapter (shown in the chapter selector). Without ffmpeg,
+the selector just lists chapter names and times. On startup the server prints whether
+thumbnails are enabled.
+
 **Troubleshooting**: the client streams its playback diagnostics to the server, which
 appends them to `client-logs.txt` next to `bitstreamer.exe` — check that file (or share
 it) when something doesn't play or the audio format looks wrong.

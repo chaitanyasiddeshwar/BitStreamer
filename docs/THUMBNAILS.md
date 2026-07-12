@@ -1,7 +1,22 @@
-# Chapter Thumbnails — Plan (ffmpeg / Option B)
+# Chapter Thumbnails — ffmpeg sidecar (Option B)
 
-Status: **planned, not implemented.** On-device extraction (Option A) has been tried and
-does not work on Fire TV; this documents why and the server-side plan to replace it.
+Status: **implemented.** On-device extraction (Option A) was tried and does not work on
+Fire TV; this documents why, and the server-side ffmpeg approach that replaced it.
+
+## What shipped
+
+- Server (`thumbnails.go`): detects `ffmpeg` next to the exe or on `PATH`; if present,
+  `GET /chapter-thumb?index=N` returns a JPEG generated on first request (`ffmpeg -ss
+  <start+5s> -i file -frames:v 1 -vf scale=320:-2 -f mjpeg`), cached to
+  `%TEMP%/bitstreamer-thumbs` keyed by file+mtime+index, with concurrency capped at 3.
+  `/info` reports `"thumbnails": true` only when ffmpeg is available.
+- Client: `ChapterThumbnailLoader` fetches `/chapter-thumb?index=N` over HTTP and caches
+  the bitmaps. When `/info` says `thumbnails:false`, the chapter selector hides the image
+  and shows a compact name + timestamp list.
+- ffmpeg is a **user-supplied sidecar** (not bundled): drop `ffmpeg.exe` next to
+  `bitstreamer.exe` to enable thumbnails; without it, everything else works unchanged.
+
+The rest of this doc records the original investigation and rationale.
 
 ## Why Option A failed (confirmed on hardware)
 

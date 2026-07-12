@@ -73,7 +73,15 @@ func main() {
 		fmt.Printf("  stream  http://%s:%d/stream\n", ip, app.httpPort)
 		fmt.Printf("  client  http://%s:%d/client.apk\n\n", ip, app.httpPort)
 	}
-	fmt.Printf("Client diagnostics will be appended to %s\n\n", app.clientLogPath)
+	fmt.Printf("Client diagnostics will be appended to %s\n", app.clientLogPath)
+	if len(app.chapters) > 0 {
+		if app.thumbs.available() {
+			fmt.Printf("Chapters: %d, with thumbnails (ffmpeg found)\n", len(app.chapters))
+		} else {
+			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
+		}
+	}
+	fmt.Println()
 	fmt.Println("Waiting for a client to connect... (Ctrl+C to stop)")
 
 	addr := fmt.Sprintf(":%d", app.httpPort)
