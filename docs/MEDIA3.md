@@ -38,8 +38,9 @@ Media3 does the heavy lifting.
 - Custom controller layout (`player_controls.xml`) for the TV D-pad focus layers
 - Seek-bar chapter ticks via `setExtraAdGroupMarkers`, and `TrackSelectionDialogBuilder`
   for the audio/subtitle pickers
-- On-device chapter thumbnails via `MediaMetadataRetriever` (not a Media3 API, but the
-  same hardware decoder path)
+- Chapter selector (name + timestamp per row). On-device thumbnails via
+  `MediaMetadataRetriever` were tried but return black/null on Fire TV (single HW decoder
+  busy with playback) — moving to server-side ffmpeg; see [THUMBNAILS.md](THUMBNAILS.md)
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 

@@ -99,41 +99,47 @@
             android:id="@+id/options_row"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="4dp"
             android:orientation="horizontal">
 
-            <Button
+            <ImageButton
                 android:id="@+id/btn_audio"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:padding="8dp"
                 android:background="@drawable/options_btn_bg"
+                android:src="@drawable/ic_audio"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/opt_audio"
                 android:nextFocusUp="@id/exo_progress"
-                android:nextFocusRight="@id/btn_subtitles"
-                android:text="@string/opt_audio"
-                android:textColor="#FFFFFF" />
+                android:nextFocusRight="@id/btn_subtitles" />
 
-            <Button
+            <ImageButton
                 android:id="@+id/btn_subtitles"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="10dp"
+                android:padding="8dp"
                 android:background="@drawable/options_btn_bg"
+                android:src="@drawable/ic_subtitles"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/opt_subtitles"
                 android:nextFocusUp="@id/exo_progress"
                 android:nextFocusLeft="@id/btn_audio"
-                android:nextFocusRight="@id/btn_chapters"
-                android:text="@string/opt_subtitles"
-                android:textColor="#FFFFFF" />
+                android:nextFocusRight="@id/btn_chapters" />
 
-            <Button
+            <ImageButton
                 android:id="@+id/btn_chapters"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="10dp"
+                android:padding="8dp"
                 android:background="@drawable/options_btn_bg"
+                android:src="@drawable/ic_chapters"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/opt_chapters"
                 android:nextFocusUp="@id/exo_progress"
                 android:nextFocusLeft="@id/btn_subtitles"
-                android:text="@string/opt_chapters"
-                android:textColor="#FFFFFF"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>

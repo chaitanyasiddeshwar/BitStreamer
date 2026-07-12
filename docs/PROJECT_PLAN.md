@@ -298,9 +298,12 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
 
 ## 9. Future candidates
 
-Multiple files / tiny queue, server tray icon, mDNS discovery, Linux/macOS server build.
-For player-side ideas (voice control via MediaSession, tunneling, Cast, subtitle styling,
-playlists), see the curated menu in [MEDIA3.md](MEDIA3.md).
+- **Chapter thumbnails via server-side ffmpeg** — on-device extraction failed on Fire TV
+  (confirmed: black/null frames from the busy single HW decoder); planned in
+  [THUMBNAILS.md](THUMBNAILS.md).
+- Multiple files / tiny queue, server tray icon, mDNS discovery, Linux/macOS server build.
+- Player-side ideas (voice control via MediaSession, tunneling, Cast, subtitle styling,
+  playlists): curated menu in [MEDIA3.md](MEDIA3.md).
 
 ## References
 

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Foreground focus indicator for the center transport buttons. Drawn ON TOP
-     of each button's icon (via android:foreground) so the icon stays visible
-     while a clear ring + tint marks which control is selected. -->
+<!-- Foreground focus indicator for the center transport buttons. An oval sizes
+     itself to each button's bounds, so the ring is round and proportional to
+     the play/pause and seek buttons. Drawn ON TOP of the icon (android:foreground)
+     so the icon stays visible. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
-        <shape android:shape="rectangle">
+        <shape android:shape="oval">
             <solid android:color="#33FFFFFF" />
             <stroke android:width="3dp" android:color="#FFFFFFFF" />
-            <corners android:radius="10dp" />
         </shape>
     </item>
     <item>
-        <shape android:shape="rectangle">
+        <shape android:shape="oval">
             <solid android:color="#00000000" />
         </shape>
     </item>

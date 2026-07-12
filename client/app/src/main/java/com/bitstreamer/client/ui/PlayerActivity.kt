@@ -9,7 +9,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
-import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ListView
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -239,9 +239,9 @@ class PlayerActivity : Activity() {
             }
         )
 
-        val btnAudio = playerView.findViewById<Button>(R.id.btn_audio)
-        val btnSubs = playerView.findViewById<Button>(R.id.btn_subtitles)
-        val btnChapters = playerView.findViewById<Button>(R.id.btn_chapters)
+        val btnAudio = playerView.findViewById<ImageButton>(R.id.btn_audio)
+        val btnSubs = playerView.findViewById<ImageButton>(R.id.btn_subtitles)
+        val btnChapters = playerView.findViewById<ImageButton>(R.id.btn_chapters)
 
         btnAudio?.setOnClickListener {
             showTrackDialog(C.TRACK_TYPE_AUDIO, getString(R.string.dialog_audio_title), allowOff = false)
