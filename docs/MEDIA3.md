@@ -65,9 +65,11 @@ threaten the bitstream-audio guarantee (see AUDIO_PASSTHROUGH.md §4 before touc
 7. **Chromecast output** (`media3-cast`). `CastPlayer` mirrors our `Player` usage; the
    server URL is already LAN-reachable for the Cast device. Only worth it if a
    non-Fire-TV screen enters the picture.
-8. **⚠ Playback speed** (`setPlaybackParameters`). Works, but speed change forces PCM —
-   incompatible with bitstreaming by definition. If ever added, gate it: passthrough
-   sessions refuse speed ≠ 1.0.
+8. **⚠ Playback speed** (`setPlaybackParameters`). Speed change forces PCM —
+   incompatible with bitstreaming by definition. **Removed from the UI**: the player
+   handed to `PlayerView` is wrapped by `PlayerFactory.withoutSpeedControls`, which
+   drops `COMMAND_SET_SPEED_AND_PITCH` so the controller never offers it (and future
+   MediaSession/voice surfaces can't trigger it either).
 9. **⚠ Software decoder extensions** (ffmpeg/AV1 modules). Would decode exotic codecs
    the hardware can't — but the ffmpeg *audio* extension is the classic way apps
    silently lose passthrough. Policy stays: extensions off (`PlayerFactory`).

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -45,5 +47,21 @@ object PlayerFactory {
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
             .build()
+    }
+
+    /**
+     * Wrapper for the UI: advertises no speed/pitch command, so PlayerView's
+     * settings menu drops the "Playback speed" row (and any future
+     * MediaSession/voice integration can't change speed either). Speed != 1.0
+     * would force PCM and kill passthrough anyway — see docs/MEDIA3.md.
+     */
+    fun withoutSpeedControls(player: Player): Player = object : ForwardingPlayer(player) {
+        override fun getAvailableCommands(): Player.Commands =
+            super.getAvailableCommands().buildUpon()
+                .remove(Player.COMMAND_SET_SPEED_AND_PITCH)
+                .build()
+
+        override fun isCommandAvailable(command: Int): Boolean =
+            command != Player.COMMAND_SET_SPEED_AND_PITCH && super.isCommandAvailable(command)
     }
 }

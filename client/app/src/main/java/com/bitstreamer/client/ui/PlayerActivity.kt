@@ -114,7 +114,7 @@ class PlayerActivity : Activity() {
 
         val exoPlayer = PlayerFactory.create(this)
         player = exoPlayer
-        playerView.player = exoPlayer
+        playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
 
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioTrackInitialized(
