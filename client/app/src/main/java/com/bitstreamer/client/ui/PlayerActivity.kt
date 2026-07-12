@@ -10,6 +10,8 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -23,7 +25,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TimeBar
 import androidx.media3.ui.TrackSelectionDialogBuilder
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
@@ -31,6 +35,7 @@ import com.bitstreamer.client.logging.RemoteLog
 import com.bitstreamer.client.playback.AudioCaps
 import com.bitstreamer.client.playback.ChapterThumbnailLoader
 import com.bitstreamer.client.playback.PlayerFactory
+import com.bitstreamer.client.playback.StoryboardLoader
 import java.util.concurrent.TimeUnit
 
 /**
@@ -55,7 +60,22 @@ class PlayerActivity : Activity() {
     private var thumbnailLoader: ChapterThumbnailLoader? = null
     private var hasThumbnails = false
     private var baseUrl: String = ""
+
+    private var storyboard: ServerApi.Storyboard? = null
+    private var storyboardLoader: StoryboardLoader? = null
+    private var storyboardEnabled = false
+    private lateinit var playerRoot: View
+    private lateinit var scrubPreview: LinearLayout
+    private lateinit var scrubPreviewImage: ImageView
+    private lateinit var scrubPreviewTime: TextView
+
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val scrubListener = object : TimeBar.OnScrubListener {
+        override fun onScrubStart(timeBar: TimeBar, position: Long) = showScrubPreview(position)
+        override fun onScrubMove(timeBar: TimeBar, position: Long) = showScrubPreview(position)
+        override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) = hideScrubPreview()
+    }
 
     private val reportPosition = object : Runnable {
         override fun run() {
@@ -74,6 +94,10 @@ class PlayerActivity : Activity() {
         playerView = findViewById(R.id.player_view)
         overlayView = findViewById(R.id.debug_overlay)
         errorView = findViewById(R.id.error_view)
+        playerRoot = findViewById(R.id.player_root)
+        scrubPreview = findViewById(R.id.scrub_preview)
+        scrubPreviewImage = findViewById(R.id.scrub_preview_image)
+        scrubPreviewTime = findViewById(R.id.scrub_preview_time)
     }
 
     override fun onStart() {
@@ -93,10 +117,15 @@ class PlayerActivity : Activity() {
             val a = api
             val resumeMs = a?.getResumePositionMs() ?: 0
             val info = a?.getInfo()
+            // Storyboard may still be generating; fetch it if the server reports
+            // it enabled, and poll later (setupControls) if not ready yet.
+            val sb = if (info?.storyboardAvailable == true) a?.getStoryboard() else null
             mainHandler.post {
                 if (!isFinishing) {
                     chapters = info?.chapters ?: emptyList()
                     hasThumbnails = info?.thumbnailsAvailable ?: false
+                    storyboardEnabled = info?.storyboardAvailable ?: false
+                    storyboard = sb
                     initializePlayer(url, resumeMs)
                 }
             }
@@ -112,6 +141,9 @@ class PlayerActivity : Activity() {
         chaptersDialog = null
         thumbnailLoader?.release()
         thumbnailLoader = null
+        storyboardLoader?.release()
+        storyboardLoader = null
+        hideScrubPreview()
         val p = player
         val finalPositionMs = when {
             p == null -> -1
@@ -252,6 +284,18 @@ class PlayerActivity : Activity() {
         }
         btnChapters?.setOnClickListener { showChaptersDialog() }
 
+        // Seek-bar D-pad step = storyboard interval (default 30s), so each
+        // left/right press lands on the next preview frame — and no more
+        // "jumps several minutes". Applied whether or not previews exist.
+        val timeBar = playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+        timeBar?.setKeyTimeIncrement(storyboard?.intervalMs ?: 30_000L)
+        timeBar?.removeListener(scrubListener)
+        timeBar?.addListener(scrubListener) // no-op preview until a loader exists
+        when {
+            storyboard != null -> enableStoryboard(storyboard!!)
+            storyboardEnabled -> pollStoryboard() // still generating on the server
+        }
+
         if (chapters.isNotEmpty()) {
             btnChapters?.visibility = View.VISIBLE
             // From the option row, D-pad DOWN opens the chapter markers.
@@ -301,6 +345,74 @@ class PlayerActivity : Activity() {
             .setView(listView)
             .create()
         chaptersDialog?.show()
+    }
+
+    private fun enableStoryboard(sb: ServerApi.Storyboard) {
+        storyboard = sb
+        storyboardLoader?.release()
+        storyboardLoader = api?.let { StoryboardLoader(it, sb) }
+        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+            ?.setKeyTimeIncrement(sb.intervalMs)
+        RemoteLog.d(TAG, "scrub previews enabled: ${sb.tileCount} tiles @${sb.intervalMs}ms")
+    }
+
+    /** Polls for the storyboard manifest while the server is still generating it. */
+    private fun pollStoryboard() {
+        val a = api ?: return
+        Thread {
+            repeat(STORYBOARD_POLL_ATTEMPTS) {
+                if (isFinishing || storyboardLoader != null) return@Thread
+                val sb = a.getStoryboard()
+                if (sb != null) {
+                    mainHandler.post { if (!isFinishing) enableStoryboard(sb) }
+                    return@Thread
+                }
+                try {
+                    Thread.sleep(STORYBOARD_POLL_INTERVAL_MS)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+            }
+        }.start()
+    }
+
+    private fun showScrubPreview(position: Long) {
+        val loader = storyboardLoader ?: return
+        scrubPreview.visibility = View.VISIBLE
+        scrubPreviewTime.text = formatTime(position)
+        loader.tileForTime(position) { bmp ->
+            if (scrubPreview.visibility == View.VISIBLE && bmp != null) {
+                scrubPreviewImage.setImageBitmap(bmp)
+            }
+        }
+        positionScrubPreview(position)
+    }
+
+    private fun hideScrubPreview() {
+        if (this::scrubPreview.isInitialized) scrubPreview.visibility = View.GONE
+    }
+
+    /** Positions the preview horizontally under the scrub thumb, above the seek bar. */
+    private fun positionScrubPreview(position: Long) {
+        val duration = player?.duration ?: return
+        if (duration <= 0) return
+        val timeBar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress) ?: return
+
+        val tbLoc = IntArray(2)
+        timeBar.getLocationOnScreen(tbLoc)
+        val rootLoc = IntArray(2)
+        playerRoot.getLocationOnScreen(rootLoc)
+
+        val frac = (position.toFloat() / duration).coerceIn(0f, 1f)
+        val scrubX = (tbLoc[0] - rootLoc[0]) + frac * timeBar.width
+        val topInRoot = tbLoc[1] - rootLoc[1]
+        val gap = 12 * resources.displayMetrics.density
+        scrubPreview.post {
+            val w = scrubPreview.width
+            val maxX = (playerRoot.width - w).toFloat().coerceAtLeast(0f)
+            scrubPreview.translationX = (scrubX - w / 2f).coerceIn(0f, maxX)
+            scrubPreview.translationY = (topInRoot - scrubPreview.height - gap).coerceAtLeast(0f)
+        }
     }
 
     private fun showResumeDialog(resumeMs: Long) {
@@ -407,5 +519,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_TITLE = "title"
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
+        private const val STORYBOARD_POLL_ATTEMPTS = 12
+        private const val STORYBOARD_POLL_INTERVAL_MS = 5_000L
     }
 }

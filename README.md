@@ -85,11 +85,15 @@ On the serving PC, from the `dist/` folder (allow it on Private networks when th
 prompt appears):
 
 ```
-bitstreamer.exe "C:\Movies\film.mkv"        # Windows
-./bitstreamer "/Volumes/Movies/film.mkv"    # macOS/Linux
+bitstreamer.exe "C:\Movies\film.mkv"                    # Windows
+./bitstreamer "/Volumes/Movies/film.mkv"                # macOS/Linux
+bitstreamer.exe --interval 20 "C:\Movies\film.mkv"      # denser scrub previews (every 20s)
 ```
 
-The server prints the stream URL, the APK URL, and whether chapter thumbnails are enabled.
+The server prints the stream URL, the APK URL, and whether chapter thumbnails / scrub
+previews are enabled. `--interval <secs>` (default 30) sets the spacing of the scrubbing
+preview frames; the client also uses it as the seek-bar step, so each D-pad left/right on
+the seek bar jumps one interval and lands on the next preview frame.
 
 Silent firewall setup on Windows (admin prompt, one time):
 
@@ -121,12 +125,18 @@ are bitstreamed as **DTS core** (extracted on the fly — the same approach as P
 Fire TV never exposes full DTS-HD passthrough to apps; TrueHD works only on the Fire TV Stick
 4K Max 2nd gen. Details in [docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
 
-## Chapter thumbnails (optional)
+## Thumbnails (optional, needs ffmpeg)
 
 Drop `ffmpeg` (`ffmpeg.exe` on Windows) next to the server binary — or have it on `PATH` — and
-the server generates a thumbnail per chapter, shown in the chapter selector. Without ffmpeg the
-selector just lists chapter names and times. The server prints which mode it's in at startup.
-See [docs/THUMBNAILS.md](docs/THUMBNAILS.md).
+the server generates, in the background at startup:
+
+- **Chapter thumbnails** shown in the chapter selector, and
+- **Scrubbing previews** (a YouTube/Netflix-style frame preview that follows the seek-bar
+  thumb), spaced every `--interval` seconds (default 30).
+
+Without ffmpeg both are skipped: the chapter selector lists names/times only, and scrubbing
+has no preview. The scrub-preview cache is per-session (cleared when the server exits). The
+server prints which modes are enabled at startup. See [docs/THUMBNAILS.md](docs/THUMBNAILS.md).
 
 ## Troubleshooting
 

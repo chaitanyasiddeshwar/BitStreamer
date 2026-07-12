@@ -33,9 +33,10 @@ type app struct {
 	resume        *resumeStore
 	chapters      []Chapter
 	thumbs        *thumbnailer
+	story         *storyboard
 }
 
-func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int) (*app, error) {
+func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
 	info, err := os.Stat(mediaPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open media file: %w", err)
@@ -57,6 +58,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		resume:        newResumeStore(resumePath, mediaPath),
 		chapters:      chapters,
 		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters),
+		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs),
 	}, nil
 }
 
@@ -86,6 +88,8 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/log", a.handleClientLog)
 	mux.HandleFunc("/position", a.handlePosition)
 	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
+	mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
+	mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
 	return logRequests(mux)
 }
 
@@ -103,6 +107,7 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"mime":       a.mediaMime,
 		"chapters":   chapters,
 		"thumbnails": a.thumbs.available(),
+		"storyboard": a.story.enabled(),
 	})
 }
 
@@ -215,6 +220,34 @@ func (a *app) handleChapterThumb(w http.ResponseWriter, r *http.Request) {
 	path, err := a.thumbs.get(index)
 	if err != nil {
 		http.Error(w, "thumbnail unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "max-age=86400")
+	http.ServeFile(w, r, path)
+}
+
+// handleStoryboardManifest returns the scrubbing-preview layout. 404 until the
+// sprite sheets have finished generating (client may retry).
+func (a *app) handleStoryboardManifest(w http.ResponseWriter, r *http.Request) {
+	if !a.story.isReady() {
+		http.Error(w, "storyboard not ready", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(a.story.manifest())
+}
+
+// handleStoryboardSheet serves sprite sheet ?sheet=N.
+func (a *app) handleStoryboardSheet(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(r.URL.Query().Get("sheet"))
+	if err != nil {
+		http.Error(w, "sheet must be an integer", http.StatusBadRequest)
+		return
+	}
+	path, ok := a.story.sheetPath(n)
+	if !ok {
+		http.Error(w, "sheet unavailable", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")

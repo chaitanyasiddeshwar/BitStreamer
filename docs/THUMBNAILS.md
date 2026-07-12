@@ -25,14 +25,21 @@ The rest of this doc records the original investigation and rationale.
 
 ---
 
-## Planned: scrubbing preview thumbnails (YouTube/Netflix-style "storyboard")
+## Scrubbing preview thumbnails (YouTube/Netflix-style "storyboard")
 
-Status: **planned, not implemented.** Feasible; this is the design.
+Status: **implemented.** As you drag the seek bar, a small preview of the frame at that
+position follows the thumb — a "trickplay"/"storyboard" preview. Unlike chapter thumbnails
+(one per chapter), this needs a **dense, regular grid** of frames across the whole movie.
 
-Goal: while the user drags the seek bar, show a small live preview of the frame at that
-position (a "trickplay"/"storyboard" preview), like YouTube/Netflix. Unlike chapter
-thumbnails (one per chapter), this needs a **dense, regular grid** of frames across the
-whole movie.
+What shipped (matching the design below): server `storyboard.go` generates sprite sheets at
+startup via ffmpeg into a per-session temp dir (deleted on Ctrl+C/SIGTERM), duration comes
+from `go-mkvparse` (`duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
+manifest and sheets. The interval is the **`--interval <secs>` flag (default 30)**. The
+client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, crops the
+tile for the scrub position, and shows it; it also sets the seek-bar D-pad step to the same
+interval so each left/right press lands on the next preview frame (and fixes the old
+"jumps several minutes" behavior). If the server is still generating when a movie opens, the
+client polls `/storyboard.json` and enables previews once ready.
 
 ### How mature players do it (and we should too): sprite sheets
 

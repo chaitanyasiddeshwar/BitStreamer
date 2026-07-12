@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -24,6 +26,7 @@ func main() {
 	apk := flag.String("apk", "", "path to the client APK served at /client.apk (default: client.apk next to the executable)")
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
+	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
@@ -56,7 +59,10 @@ func main() {
 		*resumeFile = filepath.Join(exeDir, "resume.json")
 	}
 
-	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *resumeFile, *port)
+	if *interval < 1 {
+		*interval = 1
+	}
+	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -82,6 +88,20 @@ func main() {
 			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 		}
 	}
+	if app.story.enabled() {
+		fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
+		go app.story.generate()
+	}
+
+	// Per-session storyboard cache: remove it on Ctrl+C / termination.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		app.story.cleanup()
+		os.Exit(0)
+	}()
+
 	fmt.Println()
 	fmt.Println("Waiting for a client to connect... (Ctrl+C to stop)")
 
