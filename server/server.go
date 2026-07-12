@@ -1,0 +1,157 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"html"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// app holds the immutable configuration for one server run: exactly one media
+// file, served as raw bytes.
+type app struct {
+	mediaPath   string
+	mediaName   string
+	mediaSize   int64
+	mediaMod    time.Time
+	mediaMime   string
+	displayName string
+	apkPath     string
+	httpPort    int
+}
+
+func newApp(mediaPath, displayName, apkPath string, httpPort int) (*app, error) {
+	info, err := os.Stat(mediaPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open media file: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
+	}
+	return &app{
+		mediaPath:   mediaPath,
+		mediaName:   filepath.Base(mediaPath),
+		mediaSize:   info.Size(),
+		mediaMod:    info.ModTime(),
+		mediaMime:   mimeForPath(mediaPath),
+		displayName: displayName,
+		apkPath:     apkPath,
+		httpPort:    httpPort,
+	}, nil
+}
+
+// mimeForPath maps by extension explicitly: OS mime tables often lack .mkv,
+// and the client relies on a sensible Content-Type.
+func mimeForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func (a *app) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", a.handleIndex)
+	mux.HandleFunc("/info", a.handleInfo)
+	mux.HandleFunc("/stream", a.handleStream)
+	mux.HandleFunc("/client.apk", a.handleAPK)
+	return logRequests(mux)
+}
+
+func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"v":    1,
+		"name": a.displayName,
+		"file": a.mediaName,
+		"size": a.mediaSize,
+		"mime": a.mediaMime,
+	})
+}
+
+func (a *app) handleStream(w http.ResponseWriter, r *http.Request) {
+	f, err := os.Open(a.mediaPath)
+	if err != nil {
+		http.Error(w, "media file is no longer readable", http.StatusInternalServerError)
+		log.Printf("stream: %v", err)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", a.mediaMime)
+	// ServeContent implements Range/206, If-Range and HEAD, and streams from
+	// the file without buffering it. Empty name: Content-Type is already set.
+	http.ServeContent(w, r, "", a.mediaMod, f)
+}
+
+func (a *app) handleAPK(w http.ResponseWriter, r *http.Request) {
+	f, err := os.Open(a.apkPath)
+	if err != nil {
+		http.Error(w,
+			fmt.Sprintf("client APK not found on the server (expected at %s); build the client and place it there or pass --apk", a.apkPath),
+			http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "cannot stat APK", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+	w.Header().Set("Content-Disposition", `attachment; filename="client.apk"`)
+	http.ServeContent(w, r, "", info.ModTime(), f)
+}
+
+func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html>
+<title>BitStreamer</title>
+<h1>BitStreamer &mdash; %s</h1>
+<p>Serving <b>%s</b> (%s, <code>%s</code>)</p>
+<ul>
+  <li><a href="/stream">/stream</a> &mdash; the media file (Range supported)</li>
+  <li><a href="/info">/info</a> &mdash; media metadata (JSON)</li>
+  <li><a href="/client.apk">/client.apk</a> &mdash; Fire TV client APK</li>
+</ul>
+`, html.EscapeString(a.displayName), html.EscapeString(a.mediaName), formatSize(a.mediaSize), a.mediaMime)
+}
+
+// statusWriter captures the response code for request logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		rng := r.Header.Get("Range")
+		if rng != "" {
+			rng = " " + rng
+		}
+		log.Printf("%s %s %s%s -> %d", r.RemoteAddr, r.Method, r.URL.Path, rng, sw.status)
+	})
+}

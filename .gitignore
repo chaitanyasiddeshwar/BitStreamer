@@ -1,0 +1,18 @@
+# Build outputs
+server/bitstreamer
+server/bitstreamer.exe
+client.apk
+*.apk
+
+# Android / Gradle
+client/.gradle/
+client/build/
+client/app/build/
+client/local.properties
+client/.idea/
+*.keystore
+*.jks
+
+# OS noise
+.DS_Store
+Thumbs.db
