@@ -242,6 +242,16 @@ class PlayerActivity : Activity() {
             updateOverlay()
             return true
         }
+        // Back with the controller overlay up: dismiss the overlay, don't leave
+        // the player. A second Back (on the clean movie frame) exits as usual.
+        // Consuming ACTION_DOWN is enough — the framework only triggers back
+        // navigation on ACTION_UP if the DOWN was tracked, and ours wasn't.
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_DOWN &&
+            playerView.isControllerFullyVisible
+        ) {
+            playerView.hideController()
+            return true
+        }
         return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
     }
 
