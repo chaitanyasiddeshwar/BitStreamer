@@ -76,7 +76,8 @@ func main() {
 	fmt.Printf("Client diagnostics will be appended to %s\n", app.clientLogPath)
 	if len(app.chapters) > 0 {
 		if app.thumbs.available() {
-			fmt.Printf("Chapters: %d, with thumbnails (ffmpeg found)\n", len(app.chapters))
+			fmt.Printf("Chapters: %d, generating thumbnails in the background (ffmpeg found)\n", len(app.chapters))
+			go app.thumbs.warm() // pre-generate so the chapter menu is instant
 		} else {
 			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 		}

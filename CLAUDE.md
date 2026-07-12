@@ -40,25 +40,28 @@ Key docs:
 
 ## Build commands
 
+Both builds output to a shared repo-root **`dist/`** so the server binary and `client.apk`
+sit together (the server serves `client.apk` next to it at `/client.apk`). See README for
+the full walkthrough.
+
 Server (from `server/`, works on macOS/Linux/Windows):
 ```
-make                # native binary for this machine (bitstreamer / bitstreamer.exe)
+make                # native binary -> dist/bitstreamer (or .exe on Windows)
 make windows        # dist/bitstreamer.exe          (Windows x64, from any host)
 make darwin         # dist/bitstreamer-macos        (universal arm64+x64, macOS host)
 make test
-# Windows without make: run build.bat. Or use go directly:
-go build -o bitstreamer .
-GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .
+# Windows without make: run build.bat. Or go directly: go build -o ../dist/bitstreamer .
 ```
 
 Client (from `client/`; on Windows use `gradlew.bat`):
 ```
-./gradlew assembleRelease
-# → client/app/build/outputs/apk/release/app-release.apk
+./gradlew assembleRelease   # or assembleDebug (Android Studio Run uses this)
+# APK builds under client/app/build/outputs/apk/, then a Gradle copy step
+# (copy{Release,Debug}ApkToDist) auto-copies it to dist/client.apk.
 ```
 
-Copy the built APK next to `bitstreamer.exe` as `client.apk` (or pass `--apk <path>`); the
-server serves it at `/client.apk` for sideloading via the Fire TV "Downloader" app.
+The APK→`dist/client.apk` copy is automatic; don't hand-copy. Override the served path with
+`--apk <path>` if needed.
 
 ## Running
 

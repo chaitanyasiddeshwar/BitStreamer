@@ -1,4 +1,5 @@
 # Build outputs
+/dist/
 server/bitstreamer
 server/bitstreamer.exe
 server/bitstreamer-*

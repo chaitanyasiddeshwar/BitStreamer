@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,6 +102,29 @@ func (t *thumbnailer) get(index int) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// warm generates all chapter thumbnails up front (called in the background at
+// server start) so the chapter selector is instant instead of triggering ffmpeg
+// on first open. Concurrency is capped inside get(); a client request for a
+// chapter still being generated shares the same per-index lock, so there is no
+// duplicate work.
+func (t *thumbnailer) warm() {
+	if !t.available() {
+		return
+	}
+	var wg sync.WaitGroup
+	for i := range t.chapters {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			if _, err := t.get(idx); err != nil {
+				log.Printf("thumbnail %d: %v", idx, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	log.Printf("chapter thumbnails ready (%d)", len(t.chapters))
 }
 
 func (t *thumbnailer) lockFor(index int) *sync.Mutex {
