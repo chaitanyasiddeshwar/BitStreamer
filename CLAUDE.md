@@ -15,7 +15,8 @@ media samples on the server, it is the wrong change.
 ## Repository layout
 
 ```
-server/   Go media server (pure stdlib, cross-compiles to a single bitstreamer.exe)
+server/   Go media server (stdlib + one vendored MKV parser; single self-contained
+          binary — bitstreamer.exe on Windows, bitstreamer on macOS/Linux)
 client/   Android TV app for Fire TV (Kotlin, Media3/ExoPlayer, Gradle)
 docs/     Project plan and design docs — read before implementing
 ```
@@ -39,21 +40,28 @@ Key docs:
 
 ## Build commands
 
+Both builds output to a shared repo-root **`dist/`** so the server binary and `client.apk`
+sit together (the server serves `client.apk` next to it at `/client.apk`). See README for
+the full walkthrough.
+
 Server (from `server/`, works on macOS/Linux/Windows):
 ```
-go build -o bitstreamer .          # native binary for this machine
-go test ./...
-GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .   # Windows binary from anywhere
+make                # native binary -> dist/bitstreamer (or .exe on Windows)
+make windows        # dist/bitstreamer.exe          (Windows x64, from any host)
+make darwin         # dist/bitstreamer-macos        (universal arm64+x64, macOS host)
+make test
+# Windows without make: run build.bat. Or go directly: go build -o ../dist/bitstreamer .
 ```
 
 Client (from `client/`; on Windows use `gradlew.bat`):
 ```
-./gradlew assembleRelease
-# → client/app/build/outputs/apk/release/app-release.apk
+./gradlew assembleRelease   # or assembleDebug (Android Studio Run uses this)
+# APK builds under client/app/build/outputs/apk/, then a Gradle copy step
+# (copy{Release,Debug}ApkToDist) auto-copies it to dist/client.apk.
 ```
 
-Copy the built APK next to `bitstreamer.exe` as `client.apk` (or pass `--apk <path>`); the
-server serves it at `/client.apk` for sideloading via the Fire TV "Downloader" app.
+The APK→`dist/client.apk` copy is automatic; don't hand-copy. Override the served path with
+`--apk <path>` if needed.
 
 ## Running
 
@@ -70,9 +78,12 @@ broadcast (port 46899); HTTP serves on 46898.
   discovery and firewall rules depend on them.
 - Discovery and `/info` payloads are versioned JSON (`"v": 1`). Additive changes only;
   bump `v` on breaking changes.
-- Server code: Go stdlib only — adding a dependency needs a written reason in this file.
-  No global state beyond the single served-file config; keep it small enough to audit in
-  one sitting.
+- Server code: Go stdlib only, with one vetted exception — the pure-Go, MIT
+  `go-mkvparse` parser is **vendored** in `server/third_party/mkvparse/` (used by
+  `chapters.go` to read MKV chapter markers; reason: EBML binary parsing is fiddly and a
+  parser bug already bit us once on the client). It is stdlib-only itself, so the single
+  static exe and cross-compile are unaffected. Any *further* dependency needs a written
+  reason here. No global state beyond the single served-file config.
 - Client: all playback configuration lives in one factory (`PlayerFactory`); never scatter
   ExoPlayer tweaks across activities. Log the negotiated audio pipeline on every playback
   start (see AUDIO_PASSTHROUGH.md §Verification).

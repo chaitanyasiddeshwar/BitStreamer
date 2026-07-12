@@ -1,56 +1,135 @@
 # BitStreamer
 
-Play a movie file from a Windows PC on a Fire TV Stick 4K — video and audio served
+Play a movie file from a PC on a Fire TV Stick 4K — video and audio served
 **byte-for-byte, no transcoding**, with the original Dolby Digital / DD+ / Atmos / DTS
 audio bitstreamed over HDMI to your TV or AV receiver.
 
-- `server/` — Go server, one static exe, serves the file over HTTP with Range support
+- `server/` — Go server, one self-contained binary, serves the file over HTTP with Range support
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
-- `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough design](docs/AUDIO_PASSTHROUGH.md)
+- `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md)
 
-## Quick start
+## Building
 
-**1. Build the server** (any OS; Go ≥ 1.23):
+Both builds output into a shared **`dist/`** folder at the repo root: the server binary and
+`client.apk` end up side by side, which is exactly the layout the server expects — it serves
+`client.apk` (sitting next to it) at `/client.apk` for the Fire TV Downloader app. So a full
+build leaves you with a ready-to-run `dist/`.
+
+### Prerequisites
+
+- **Server**: [Go](https://go.dev/dl/) ≥ 1.23. (Optional: `make` for the convenience targets;
+  on Windows without make, use `build.bat`.)
+- **Client**: [Android Studio](https://developer.android.com/studio) (bundles the JDK and
+  Android SDK), or a standalone JDK 17 + Android SDK to use the Gradle wrapper.
+- **Optional**: `ffmpeg` on the server machine for chapter thumbnails (see below).
+
+### Server
+
+The server is pure Go and cross-compiles from any host, so you can build the Windows `.exe`
+from a Mac. From `server/`:
 
 ```
-cd server
-GOOS=windows GOARCH=amd64 go build -o bitstreamer.exe .
+make            # native binary for THIS machine -> dist/bitstreamer (or .exe on Windows)
+make windows    # dist/bitstreamer.exe            (Windows x64, from any host)
+make darwin     # dist/bitstreamer-macos          (universal arm64+x64, on a Mac)
+make all        # windows + darwin
+make test       # run the test suite
 ```
 
-**2. Build the client** (Android Studio, or `gradlew.bat assembleRelease` in `client/`),
-then copy `client/app/build/outputs/apk/release/app-release.apk` next to
-`bitstreamer.exe` and rename it `client.apk`.
-
-**3. Run** on the Windows PC (allow it on Private networks when the firewall asks):
+Without `make`:
 
 ```
-bitstreamer.exe "C:\Movies\film.mkv"
+# Windows:
+build.bat                                             # -> ..\dist\bitstreamer.exe
+# Any OS, directly with go:
+go build -o ../dist/bitstreamer .                     # native
+GOOS=windows GOARCH=amd64 go build -o ../dist/bitstreamer.exe .   # cross to Windows
 ```
 
-Silent firewall setup (admin prompt, one time):
+### Client
+
+Open the `client/` folder in Android Studio and **Run** (or **Build → Build APK**), or use
+the Gradle wrapper from `client/`:
+
+```
+# macOS/Linux:
+./gradlew assembleRelease      # or assembleDebug
+# Windows:
+gradlew.bat assembleRelease
+```
+
+The APK builds to `client/app/build/outputs/apk/<variant>/`, and a post-build step
+**automatically copies it to `dist/client.apk`** — the spot the server serves it from. No
+manual copying needed. (Android Studio's Run triggers `assembleDebug`, which copies too.)
+
+Signing: the release build is signed with the local debug keystore so `assembleRelease`
+produces an installable APK with no keystore setup. That's fine for personal sideloading;
+just keep building on the same machine so app upgrades share a signing key.
+
+### Result
+
+After building both, `dist/` contains:
+
+```
+dist/
+  bitstreamer.exe        (or bitstreamer / bitstreamer-macos)
+  client.apk
+```
+
+Copy that folder to the machine that will serve your movies (add `ffmpeg.exe` too if you want
+thumbnails), and run from inside it.
+
+## Running
+
+On the serving PC, from the `dist/` folder (allow it on Private networks when the firewall
+prompt appears):
+
+```
+bitstreamer.exe "C:\Movies\film.mkv"        # Windows
+./bitstreamer "/Volumes/Movies/film.mkv"    # macOS/Linux
+```
+
+The server prints the stream URL, the APK URL, and whether chapter thumbnails are enabled.
+
+Silent firewall setup on Windows (admin prompt, one time):
 
 ```
 netsh advfirewall firewall add rule name="BitStreamer HTTP" dir=in action=allow protocol=TCP localport=46898 profile=private
 netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=allow protocol=UDP localport=46899 profile=private
 ```
 
-**4. Install on the Fire TV**: install the **Downloader** app from the Amazon Appstore,
-enter the APK URL the server printed (e.g. `http://192.168.1.20:46898/client.apk`),
-and install (enable "Install unknown apps" for Downloader when prompted).
+### Install on the Fire TV
 
-**5. Play**: open BitStreamer on the Fire TV — it finds the server automatically and
-plays. Remote: center/play = pause, left/right or RW/FF = seek, Menu = audio debug
-overlay, Back = stop. The controller's settings/CC buttons switch audio and subtitle
-tracks. If you stopped mid-movie, the player offers to resume where you left off
-(per device, remembered by the server until it's started with a different file).
+Install the **Downloader** app from the Amazon Appstore, enter the APK URL the server printed
+(e.g. `http://192.168.1.20:46898/client.apk`), and install it (enable "Install unknown apps"
+for Downloader when prompted).
 
-For bitstreamed surround sound, set Fire TV **Settings → Display & Sounds → Audio →
-Surround Sound** to **Best Available**, and verify the format on your AVR/TV display.
-DTS-HD tracks are bitstreamed as **DTS core** (extracted on the fly — same approach as
-Plex/Kodi), since Fire TV never exposes full DTS-HD passthrough to apps; TrueHD works
-only on the Fire TV Stick 4K Max 2nd gen. Details in
-[docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
+### Play
 
-**Troubleshooting**: the client streams its playback diagnostics to the server, which
-appends them to `client-logs.txt` next to `bitstreamer.exe` — check that file (or share
-it) when something doesn't play or the audio format looks wrong.
+Open BitStreamer on the Fire TV — it finds the server automatically and plays. Remote:
+center/play toggles pause; D-pad left/right on the seek bar scrubs; RW/FF seek; Up focuses
+play/pause; Down opens the Audio / Subtitles / Chapters icons; Menu toggles the audio debug
+overlay; Back hides the controls, then exits. If you stopped mid-movie, the player offers to
+resume where you left off (per device, remembered by the server until it's started with a
+different file).
+
+## Audio (the whole point)
+
+For bitstreamed surround sound, set Fire TV **Settings → Display & Sounds → Audio → Surround
+Sound** to **Best Available**, and verify the format on your AVR/TV front panel. DTS-HD tracks
+are bitstreamed as **DTS core** (extracted on the fly — the same approach as Plex/Kodi), since
+Fire TV never exposes full DTS-HD passthrough to apps; TrueHD works only on the Fire TV Stick
+4K Max 2nd gen. Details in [docs/AUDIO_PASSTHROUGH.md](docs/AUDIO_PASSTHROUGH.md).
+
+## Chapter thumbnails (optional)
+
+Drop `ffmpeg` (`ffmpeg.exe` on Windows) next to the server binary — or have it on `PATH` — and
+the server generates a thumbnail per chapter, shown in the chapter selector. Without ffmpeg the
+selector just lists chapter names and times. The server prints which mode it's in at startup.
+See [docs/THUMBNAILS.md](docs/THUMBNAILS.md).
+
+## Troubleshooting
+
+The client streams its playback diagnostics to the server, which appends them to
+`client-logs.txt` next to the server binary — check that file (or share it) when something
+doesn't play or the audio format looks wrong.

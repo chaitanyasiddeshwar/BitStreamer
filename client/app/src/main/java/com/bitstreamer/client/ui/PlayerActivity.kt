@@ -9,6 +9,8 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.widget.ImageButton
+import android.widget.ListView
 import android.widget.TextView
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -22,10 +24,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
 import com.bitstreamer.client.playback.AudioCaps
+import com.bitstreamer.client.playback.ChapterThumbnailLoader
 import com.bitstreamer.client.playback.PlayerFactory
 import java.util.concurrent.TimeUnit
 
@@ -46,6 +50,11 @@ class PlayerActivity : Activity() {
     private var audioTrackDescription = "AudioTrack not initialized yet"
     private var api: ServerApi? = null
     private var resumeDialog: AlertDialog? = null
+    private var chaptersDialog: AlertDialog? = null
+    private var chapters: List<ServerApi.Chapter> = emptyList()
+    private var thumbnailLoader: ChapterThumbnailLoader? = null
+    private var hasThumbnails = false
+    private var baseUrl: String = ""
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val reportPosition = object : Runnable {
@@ -75,14 +84,21 @@ class PlayerActivity : Activity() {
             return
         }
         val uri = Uri.parse(url)
-        val baseUrl = "http://${uri.host}:${uri.port}"
+        baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
         RemoteLog.init(baseUrl)
-        // Ask the server for a stored resume position before starting playback.
+        // Ask the server for the resume position and chapter/thumbnail info
+        // before starting playback (cheap /position + /info reads).
         Thread {
-            val resumeMs = api?.getResumePositionMs() ?: 0
+            val a = api
+            val resumeMs = a?.getResumePositionMs() ?: 0
+            val info = a?.getInfo()
             mainHandler.post {
-                if (!isFinishing) initializePlayer(url, resumeMs)
+                if (!isFinishing) {
+                    chapters = info?.chapters ?: emptyList()
+                    hasThumbnails = info?.thumbnailsAvailable ?: false
+                    initializePlayer(url, resumeMs)
+                }
             }
         }.start()
     }
@@ -92,6 +108,10 @@ class PlayerActivity : Activity() {
         mainHandler.removeCallbacks(reportPosition)
         resumeDialog?.dismiss()
         resumeDialog = null
+        chaptersDialog?.dismiss()
+        chaptersDialog = null
+        thumbnailLoader?.release()
+        thumbnailLoader = null
         val p = player
         val finalPositionMs = when {
             p == null -> -1
@@ -115,6 +135,7 @@ class PlayerActivity : Activity() {
         val exoPlayer = PlayerFactory.create(this)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
+        setupControls()
 
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioTrackInitialized(
@@ -203,6 +224,83 @@ class PlayerActivity : Activity() {
             exoPlayer.playWhenReady = true
         }
         mainHandler.postDelayed(reportPosition, POSITION_REPORT_INTERVAL_MS)
+    }
+
+    /**
+     * Wires the custom controller: makes the time bar the default focus (so
+     * D-pad left/right scrubs), and connects the Audio/Subtitles/Chapters
+     * option row. See docs/MEDIA3.md for the D-pad layer design.
+     */
+    private fun setupControls() {
+        playerView.setControllerVisibilityListener(
+            PlayerView.ControllerVisibilityListener { visibility ->
+                if (visibility == View.VISIBLE) {
+                    playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.requestFocus()
+                }
+            }
+        )
+
+        val btnAudio = playerView.findViewById<ImageButton>(R.id.btn_audio)
+        val btnSubs = playerView.findViewById<ImageButton>(R.id.btn_subtitles)
+        val btnChapters = playerView.findViewById<ImageButton>(R.id.btn_chapters)
+
+        btnAudio?.setOnClickListener {
+            showTrackDialog(C.TRACK_TYPE_AUDIO, getString(R.string.dialog_audio_title), allowOff = false)
+        }
+        btnSubs?.setOnClickListener {
+            showTrackDialog(C.TRACK_TYPE_TEXT, getString(R.string.dialog_subtitles_title), allowOff = true)
+        }
+        btnChapters?.setOnClickListener { showChaptersDialog() }
+
+        if (chapters.isNotEmpty()) {
+            btnChapters?.visibility = View.VISIBLE
+            // From the option row, D-pad DOWN opens the chapter markers.
+            val openChapters = View.OnKeyListener { _, keyCode, event ->
+                if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    showChaptersDialog()
+                    true
+                } else {
+                    false
+                }
+            }
+            btnAudio?.setOnKeyListener(openChapters)
+            btnSubs?.setOnKeyListener(openChapters)
+            btnChapters?.setOnKeyListener(openChapters)
+
+            val times = chapters.map { it.startMs }.toLongArray()
+            playerView.setExtraAdGroupMarkers(times, BooleanArray(times.size))
+            thumbnailLoader?.release()
+            thumbnailLoader = if (hasThumbnails) ChapterThumbnailLoader(baseUrl) else null
+            RemoteLog.d(TAG, "chapters: ${chapters.size}, thumbnails=$hasThumbnails")
+        } else {
+            btnChapters?.visibility = View.GONE
+        }
+    }
+
+    private fun showTrackDialog(trackType: Int, title: String, allowOff: Boolean) {
+        val p = player ?: return
+        TrackSelectionDialogBuilder(this, title, p, trackType)
+            .setAllowAdaptiveSelections(false)
+            .setShowDisableOption(allowOff)
+            .build()
+            .show()
+    }
+
+    private fun showChaptersDialog() {
+        val p = player ?: return
+        if (chapters.isEmpty()) return
+        val listView = ListView(this)
+        listView.adapter = ChapterListAdapter(this, chapters, thumbnailLoader)
+        listView.setOnItemClickListener { _, _, position, _ ->
+            p.seekTo(chapters[position].startMs)
+            p.playWhenReady = true
+            chaptersDialog?.dismiss()
+        }
+        chaptersDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_chapters_title)
+            .setView(listView)
+            .create()
+        chaptersDialog?.show()
     }
 
     private fun showResumeDialog(resumeMs: Long) {

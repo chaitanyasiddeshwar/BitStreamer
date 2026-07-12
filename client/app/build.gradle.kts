@@ -40,3 +40,22 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-extractor:$media3") // DtsUtil for core extraction
 }
+
+// After an assemble, copy the built APK to the shared repo-root dist/ folder as
+// client.apk, where the server serves it at /client.apk for the Fire TV
+// "Downloader" app. Runs automatically for both debug and release builds
+// (Android Studio's Run also triggers assembleDebug).
+val distDir = rootProject.layout.projectDirectory.dir("../dist")
+listOf("Release", "Debug").forEach { variant ->
+    val copyTask = tasks.register<Copy>("copy${variant}ApkToDist") {
+        from(layout.buildDirectory.dir("outputs/apk/${variant.lowercase()}")) {
+            include("*.apk")
+        }
+        into(distDir)
+        rename { "client.apk" }
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+    tasks.matching { it.name == "assemble$variant" }.configureEach {
+        finalizedBy(copyTask)
+    }
+}

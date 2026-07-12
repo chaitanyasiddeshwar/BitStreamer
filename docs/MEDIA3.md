@@ -35,6 +35,12 @@ Media3 does the heavy lifting.
 - Track selection UI (audio via settings button, subtitles via CC button)
 - Embedded subtitle extraction + rendering (SRT/ASS/PGS from MKV)
 - Seek increments, controller overlay, `show_buffering`, D-pad key mapping
+- Custom controller layout (`player_controls.xml`) for the TV D-pad focus layers
+- Seek-bar chapter ticks via `setExtraAdGroupMarkers`, and `TrackSelectionDialogBuilder`
+  for the audio/subtitle pickers
+- Chapter selector (name + timestamp per row). On-device thumbnails via
+  `MediaMetadataRetriever` were tried but return black/null on Fire TV (single HW decoder
+  busy with playback) — moving to server-side ffmpeg; see [THUMBNAILS.md](THUMBNAILS.md)
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 

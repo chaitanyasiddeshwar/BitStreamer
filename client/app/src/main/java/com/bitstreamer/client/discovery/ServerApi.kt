@@ -11,6 +11,35 @@ import java.net.URL
  */
 class ServerApi(private val baseUrl: String) {
 
+    /** A chapter marker parsed by the server from the MKV. */
+    data class Chapter(val startMs: Long, val name: String)
+
+    /** Server metadata relevant to the player. */
+    data class Info(val chapters: List<Chapter>, val thumbnailsAvailable: Boolean)
+
+    /** Reads /info: chapter markers and whether the server can serve thumbnails. */
+    fun getInfo(): Info {
+        return try {
+            val conn = URL("$baseUrl/info").openConnection() as HttpURLConnection
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
+            val body = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("chapters")
+            val chapters = if (arr == null) emptyList() else
+                (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    Chapter(o.optLong("startMs", 0), o.optString("name", ""))
+                }
+            Info(chapters, json.optBoolean("thumbnails", false))
+        } catch (_: Exception) {
+            Info(emptyList(), false)
+        }
+    }
+
+    /** URL of the server-generated thumbnail for chapter [index]. */
+    fun chapterThumbUrl(index: Int): String = "$baseUrl/chapter-thumb?index=$index"
+
     /** Last stored resume position for this client, or 0 if none. */
     fun getResumePositionMs(): Long {
         return try {
