@@ -51,18 +51,24 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
         pendingBuffer = null
         strippedSamples = 0
         warnedNoCore = false
-        if (isDtsHd(inputFormat) && !super.supportsFormat(inputFormat)) {
+        if (isDtsHd(inputFormat)) {
             val coreFormat = toCoreFormat(inputFormat)
-            if (super.supportsFormat(coreFormat)) {
+            val coreOk = super.supportsFormat(coreFormat)
+            val directOk = super.supportsFormat(inputFormat)
+            if (coreOk && !(directOk && PREFER_DIRECT_DTS_HD)) {
                 stripToCore = true
                 RemoteLog.d(
                     TAG,
-                    "sink lacks DTS-HD; bitstreaming DTS core instead: " +
-                        "${inputFormat.sampleMimeType} -> ${coreFormat.sampleMimeType} " +
+                    "bitstreaming DTS core for ${inputFormat.sampleMimeType} " +
+                        "(sink advertises DTS-HD: $directOk; Fire TV's DTS-HD path is " +
+                        "unreliable, core extraction forced) -> ${coreFormat.sampleMimeType} " +
                         "${coreFormat.channelCount}ch @${coreFormat.sampleRate}Hz"
                 )
                 super.configure(coreFormat, specifiedBufferSize, outputChannels)
                 return
+            }
+            if (directOk) {
+                RemoteLog.d(TAG, "direct DTS-HD passthrough (PREFER_DIRECT_DTS_HD enabled)")
             }
         }
         stripToCore = false
@@ -180,5 +186,14 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
     companion object {
         private const val TAG = "DtsCoreAudioSink"
         private const val HEADER_SIZE = 10 // bytes DtsUtil.getDtsFrameSize reads
+
+        // Fire TV advertises ENCODING_DTS_HD in its HDMI caps, but the actual
+        // DTS-HD passthrough path does not work for apps: the AudioTrack opens
+        // and plays silence (verified on AFTKM / Fire TV Stick 4K Max, and the
+        // same is reported for Plex on Fire TV Cube). Only Kodi's IEC-packing
+        // hack gets real DTS-HD through. So DTS core extraction is forced even
+        // when the sink claims DTS-HD; flip this only if a device with a
+        // working direct DTS-HD path ever shows up.
+        private const val PREFER_DIRECT_DTS_HD = false
     }
 }

@@ -80,8 +80,15 @@ object AudioCaps {
         AudioFormat.ENCODING_E_AC3_JOC -> "Dolby Atmos (E-AC3-JOC)"
         AudioFormat.ENCODING_DTS -> "DTS"
         AudioFormat.ENCODING_DTS_HD -> "DTS-HD"
+        AudioFormat.ENCODING_DTS_HD_MA -> "DTS-HD MA"
+        AudioFormat.ENCODING_DTS_UHD_P2 -> "DTS:X (UHD P2)"
         AudioFormat.ENCODING_DOLBY_TRUEHD -> "Dolby TrueHD"
         AudioFormat.ENCODING_DOLBY_MAT -> "Dolby MAT"
+        AudioFormat.ENCODING_IEC61937 -> "IEC61937"
+        AudioFormat.ENCODING_AC4 -> "Dolby AC-4"
+        AudioFormat.ENCODING_OPUS -> "Opus"
+        AudioFormat.ENCODING_MPEGH_BL_L3, AudioFormat.ENCODING_MPEGH_BL_L4,
+        AudioFormat.ENCODING_MPEGH_LC_L3, AudioFormat.ENCODING_MPEGH_LC_L4 -> "MPEG-H #$encoding"
         else -> "encoding #$encoding"
     }
 }

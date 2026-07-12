@@ -134,9 +134,12 @@ DTS-capable sink accepts as `ENCODING_DTS`.
 - `getFormatSupport()`: claims support for `audio/vnd.dts.hd` when the inner sink
   supports the equivalent DTS-core format — this is what makes the track selectable and
   routes it through ExoPlayer's decoder-less bypass path.
-- `configure()`: prefers the direct path (true DTS-HD passthrough if the platform ever
-  advertises it), else configures the inner sink with the core format
-  (`audio/vnd.dts`, ≤48 kHz, ≤6ch).
+- `configure()`: forces core extraction for DTS-HD **even when the sink advertises
+  `ENCODING_DTS_HD`**. Field finding (Fire TV Stick 4K Max, AFTKM, Fire OS 8): the HDMI
+  caps include DTS-HD, the direct passthrough AudioTrack opens without error, and the
+  output is silent — matching Plex forum reports for the Fire TV Cube. The advertisement
+  is not trustworthy; only Kodi's IEC packing gets real DTS-HD through. The direct path
+  is kept behind `PREFER_DIRECT_DTS_HD` (default false) for future devices that honor it.
 - `handleBuffer()`: truncates each sample **in place** to its core frame(s) using
   `DtsUtil.getFrameType`/`getDtsFrameSize`. In-place matters: `DefaultAudioSink` requires
   a retried buffer to be the identical instance, so the sink never allocates and never
