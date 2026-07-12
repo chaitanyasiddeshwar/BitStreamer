@@ -1,8 +1,10 @@
 # BitStreamer — Project Plan
 
-Status: **planned, not yet implemented**. This document is the implementation spec for
-building the project from scratch on a Windows machine. All major decisions are made here;
-an implementation session should be able to proceed without re-litigating them.
+Status: **v1 shipped and verified end-to-end on hardware** (Windows PC → Fire TV Stick
+4K Max → AVR). All milestones below are complete, including DTS-HD playback via DTS core
+extraction, remote client diagnostics, resume, and subtitle/audio track selection. This
+document remains the reference spec; deltas discovered during implementation are folded
+in below and in AUDIO_PASSTHROUGH.md.
 
 ---
 
@@ -162,11 +164,19 @@ server/
    - `MediaItem.fromUri("http://<ip>:46898/stream")`.
    - Controls (Fire TV remote): play/pause (center + play/pause key), FF/RW keys and
      D-pad left/right → seek (back 10 s, forward 30 s via
-     `setSeekBackIncrementMs`/`setSeekForwardIncrementMs`), Back → stop & exit.
-     `PlayerView` handles the key mapping; verify FF/RW keycodes
-     (`KEYCODE_MEDIA_FAST_FORWARD`/`REWIND`) on the actual Fire TV remote.
+     `setSeekBackIncrementMs`/`setSeekForwardIncrementMs`). Back dismisses the controller
+     overlay if it is visible; Back on the clean movie frame stops & exits. Menu toggles
+     the audio debug overlay.
+   - Track selection: the controller's settings button switches audio tracks; the CC
+     button switches subtitle tracks (`show_subtitle_button` — MKV-embedded
+     SRT/ASS/PGS are extracted and rendered by Media3 automatically).
+   - Resume: on open the client fetches `GET /position`; ≥10 s stored → dialog
+     "Resume from X / Start from beginning". While playing it heartbeats the position
+     to `POST /position` every 5 s and reports a final position on stop (0 when
+     playback finished, clearing the entry).
    - `keepScreenOn`, release player in `onStop`.
-   - Error surface: on playback error show codec/track info and the reason, not a toast.
+   - Error surface: on playback error show codec/track info and the reason, not a toast;
+     everything is also mirrored to the server via `RemoteLog` (`POST /log`).
 
 ### Player construction (`PlayerFactory` — the load-bearing class)
 
@@ -192,7 +202,10 @@ client/
       AndroidManifest.xml
       java/…/bitstreamer/
         discovery/DiscoveryClient.kt     # UDP probe/parse, MulticastLock
+        discovery/ServerApi.kt           # /info, /position client
+        logging/RemoteLog.kt             # tees logcat + POST /log to the server
         playback/PlayerFactory.kt        # ALL ExoPlayer config lives here
+        playback/DtsCoreAudioSink.kt     # DTS-HD -> DTS core extraction (AUDIO_PASSTHROUGH.md §7)
         playback/AudioCaps.kt            # Fire OS capability detection (see AUDIO_PASSTHROUGH.md)
         ui/DiscoveryActivity.kt
         ui/PlayerActivity.kt
@@ -203,7 +216,8 @@ client/
 
 ## 6. Milestones
 
-Each milestone has an acceptance test; don't start the next until it passes.
+**All complete** (verified on a Fire TV Stick 4K Max against a real AVR, July 2026).
+Kept for reference; each milestone had an acceptance test.
 
 | M | Deliverable | Acceptance |
 |---|-------------|------------|
@@ -268,10 +282,19 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
 
 ---
 
-## 8. v1.1 candidates (not in scope now)
+## 8. Shipped beyond the original v1 scope
 
-Subtitle track UI (PGS/SRT from MKV), multiple files / tiny queue, server tray icon,
-resume position memory, mDNS discovery, Linux/macOS server build.
+- **DTS-HD playback via DTS core extraction** (`DtsCoreAudioSink`) — AUDIO_PASSTHROUGH.md §7
+- **Remote client diagnostics** (`RemoteLog` → `POST /log` → `client-logs.txt`)
+- **Resume where you left off** (per client IP, `resume.json`, cleared on file switch)
+- **Subtitle track selector** (controller CC button; MKV SRT/ASS/PGS)
+- **TV-correct Back behavior** (dismiss controller overlay before exiting)
+
+## 9. Future candidates
+
+Multiple files / tiny queue, server tray icon, mDNS discovery, Linux/macOS server build.
+For player-side ideas (voice control via MediaSession, tunneling, Cast, subtitle styling,
+playlists), see the curated menu in [MEDIA3.md](MEDIA3.md).
 
 ## References
 

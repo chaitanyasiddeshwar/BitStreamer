@@ -24,6 +24,8 @@ Key docs:
 - `docs/PROJECT_PLAN.md` — architecture, decisions, protocol spec, milestones, test plan
 - `docs/AUDIO_PASSTHROUGH.md` — how audio bitstreaming works on Fire TV; read before touching
   any audio code in the client
+- `docs/MEDIA3.md` — what Media3 is, which of its features we use, and the vetted menu of
+  features we could adopt (with passthrough-hazard warnings)
 
 ## Tech stack (decided — see PROJECT_PLAN.md for rationale)
 
