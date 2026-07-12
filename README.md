@@ -40,7 +40,9 @@ and install (enable "Install unknown apps" for Downloader when prompted).
 
 **5. Play**: open BitStreamer on the Fire TV — it finds the server automatically and
 plays. Remote: center/play = pause, left/right or RW/FF = seek, Menu = audio debug
-overlay, Back = stop.
+overlay, Back = stop. The controller's settings/CC buttons switch audio and subtitle
+tracks. If you stopped mid-movie, the player offers to resume where you left off
+(per device, remembered by the server until it's started with a different file).
 
 For bitstreamed surround sound, set Fire TV **Settings → Display & Sounds → Audio →
 Surround Sound** to **Best Available**, and verify the format on your AVR/TV display.

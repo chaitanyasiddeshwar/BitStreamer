@@ -4,6 +4,7 @@ server/bitstreamer.exe
 client.apk
 *.apk
 client-logs.txt
+resume.json
 
 # Android / Gradle
 client/.gradle/

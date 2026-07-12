@@ -1,8 +1,11 @@
 package com.bitstreamer.client.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -20,9 +23,11 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.PlayerView
 import com.bitstreamer.client.R
+import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
 import com.bitstreamer.client.playback.AudioCaps
 import com.bitstreamer.client.playback.PlayerFactory
+import java.util.concurrent.TimeUnit
 
 /**
  * Full-screen playback. The Menu key toggles a debug overlay showing the input
@@ -39,6 +44,20 @@ class PlayerActivity : Activity() {
     private lateinit var overlayView: TextView
     private lateinit var errorView: TextView
     private var audioTrackDescription = "AudioTrack not initialized yet"
+    private var api: ServerApi? = null
+    private var resumeDialog: AlertDialog? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val reportPosition = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (p.isPlaying) {
+                val ms = p.currentPosition
+                Thread { api?.postPosition(ms) }.start()
+            }
+            mainHandler.postDelayed(this, POSITION_REPORT_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,26 +69,45 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        initializePlayer()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        releasePlayer()
-        Thread { RemoteLog.flushNow() }.start()
-    }
-
-    private fun initializePlayer() {
         val url = intent.getStringExtra(EXTRA_URL)
         if (url == null) {
             finish()
             return
         }
-        errorView.visibility = View.GONE
-
         val uri = Uri.parse(url)
-        RemoteLog.init("http://${uri.host}:${uri.port}")
-        RemoteLog.d(TAG, "opening $url")
+        val baseUrl = "http://${uri.host}:${uri.port}"
+        api = ServerApi(baseUrl)
+        RemoteLog.init(baseUrl)
+        // Ask the server for a stored resume position before starting playback.
+        Thread {
+            val resumeMs = api?.getResumePositionMs() ?: 0
+            mainHandler.post {
+                if (!isFinishing) initializePlayer(url, resumeMs)
+            }
+        }.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        mainHandler.removeCallbacks(reportPosition)
+        resumeDialog?.dismiss()
+        resumeDialog = null
+        val p = player
+        val finalPositionMs = when {
+            p == null -> -1
+            p.playbackState == Player.STATE_ENDED -> 0 // finished: clear resume point
+            else -> p.currentPosition
+        }
+        releasePlayer()
+        Thread {
+            if (finalPositionMs >= 0) api?.postPosition(finalPositionMs)
+            RemoteLog.flushNow()
+        }.start()
+    }
+
+    private fun initializePlayer(url: String, resumeMs: Long) {
+        errorView.visibility = View.GONE
+        RemoteLog.d(TAG, "opening $url (stored resume position: ${resumeMs}ms)")
         RemoteLog.d(TAG, "HDMI sink caps: ${AudioCaps.describe(this)}")
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
@@ -149,13 +187,46 @@ class PlayerActivity : Activity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 RemoteLog.d(TAG, "playback state: $playbackState")
+                if (playbackState == Player.STATE_ENDED) {
+                    Thread { api?.postPosition(0) }.start() // finished: clear resume point
+                }
                 updateOverlay()
             }
         })
 
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
         exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        if (resumeMs >= MIN_RESUME_MS) {
+            exoPlayer.playWhenReady = false
+            showResumeDialog(resumeMs)
+        } else {
+            exoPlayer.playWhenReady = true
+        }
+        mainHandler.postDelayed(reportPosition, POSITION_REPORT_INTERVAL_MS)
+    }
+
+    private fun showResumeDialog(resumeMs: Long) {
+        resumeDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.resume_title)
+            .setPositiveButton(getString(R.string.resume_from, formatTime(resumeMs))) { _, _ ->
+                player?.seekTo(resumeMs)
+                player?.playWhenReady = true
+            }
+            .setNegativeButton(R.string.start_over) { _, _ ->
+                player?.playWhenReady = true
+            }
+            .setOnCancelListener {
+                player?.playWhenReady = true
+            }
+            .show()
+    }
+
+    private fun formatTime(ms: Long): String {
+        val h = TimeUnit.MILLISECONDS.toHours(ms)
+        val m = TimeUnit.MILLISECONDS.toMinutes(ms) % 60
+        val s = TimeUnit.MILLISECONDS.toSeconds(ms) % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
+        else String.format("%d:%02d", m, s)
     }
 
     private fun releasePlayer() {
@@ -226,5 +297,7 @@ class PlayerActivity : Activity() {
         private const val TAG = "PlayerActivity"
         const val EXTRA_URL = "url"
         const val EXTRA_TITLE = "title"
+        private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
+        private const val POSITION_REPORT_INTERVAL_MS = 5_000L
     }
 }

@@ -23,6 +23,7 @@ func main() {
 	name := flag.String("name", "", "display name announced to clients (default: hostname)")
 	apk := flag.String("apk", "", "path to the client APK served at /client.apk (default: client.apk next to the executable)")
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
+	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
@@ -51,8 +52,11 @@ func main() {
 	if *clientLog == "" {
 		*clientLog = filepath.Join(exeDir, "client-logs.txt")
 	}
+	if *resumeFile == "" {
+		*resumeFile = filepath.Join(exeDir, "resume.json")
+	}
 
-	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *port)
+	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *resumeFile, *port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

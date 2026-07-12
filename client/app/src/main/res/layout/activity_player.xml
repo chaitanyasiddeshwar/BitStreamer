@@ -10,7 +10,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:keepScreenOn="true"
-        app:show_buffering="when_playing" />
+        app:show_buffering="when_playing"
+        app:show_subtitle_button="true" />
 
     <TextView
         android:id="@+id/debug_overlay"

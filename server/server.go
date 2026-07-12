@@ -6,9 +6,11 @@ import (
 	"html"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,9 +30,10 @@ type app struct {
 
 	clientLogPath string
 	clientLogMu   sync.Mutex
+	resume        *resumeStore
 }
 
-func newApp(mediaPath, displayName, apkPath, clientLogPath string, httpPort int) (*app, error) {
+func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int) (*app, error) {
 	info, err := os.Stat(mediaPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open media file: %w", err)
@@ -48,6 +51,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath string, httpPort int)
 		apkPath:       apkPath,
 		httpPort:      httpPort,
 		clientLogPath: clientLogPath,
+		resume:        newResumeStore(resumePath, mediaPath),
 	}, nil
 }
 
@@ -75,6 +79,7 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/stream", a.handleStream)
 	mux.HandleFunc("/client.apk", a.handleAPK)
 	mux.HandleFunc("/log", a.handleClientLog)
+	mux.HandleFunc("/position", a.handlePosition)
 	return logRequests(mux)
 }
 
@@ -157,6 +162,36 @@ func (a *app) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handlePosition stores (POST ?ms=N) and reports (GET) the last playback
+// position for the requesting client's IP, enabling resume-where-you-left-off.
+// POSTing ms=0 clears the stored position (playback finished).
+func (a *app) handlePosition(w http.ResponseWriter, r *http.Request) {
+	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		clientIP = r.RemoteAddr
+	}
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"v":          1,
+			"file":       a.mediaName,
+			"positionMs": a.resume.get(clientIP),
+		})
+	case http.MethodPost:
+		ms, err := strconv.ParseInt(r.URL.Query().Get("ms"), 10, 64)
+		if err != nil || ms < 0 {
+			http.Error(w, "ms must be a non-negative integer", http.StatusBadRequest)
+			return
+		}
+		a.resume.set(clientIP, ms)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
+	}
+}
+
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -192,6 +227,9 @@ func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
+		if r.URL.Path == "/position" && sw.status < 400 {
+			return // 5-second heartbeat; logging it would drown the console
+		}
 		rng := r.Header.Get("Range")
 		if rng != "" {
 			rng = " " + rng

@@ -25,7 +25,7 @@ func newTestApp(t *testing.T) (*app, []byte) {
 		t.Fatal(err)
 	}
 	a, err := newApp(path, "TestServer", filepath.Join(dir, "client.apk"),
-		filepath.Join(dir, "client-logs.txt"), 46898)
+		filepath.Join(dir, "client-logs.txt"), filepath.Join(dir, "resume.json"), 46898)
 	if err != nil {
 		t.Fatal(err)
 	}
