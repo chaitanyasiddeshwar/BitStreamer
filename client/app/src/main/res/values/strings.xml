@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BitStreamer</string>
+    <string name="status_scanning">Searching for BitStreamer servers on this network…</string>
+    <string name="status_none_found">No servers found. Is bitstreamer.exe running on the PC? You can also enter its IP below.</string>
+    <string name="status_found">Found %1$d server(s) — select one to play</string>
+    <string name="status_connecting">Connecting to %1$s…</string>
+    <string name="status_connect_failed">Could not reach %1$s (is the server running? same network?)</string>
+    <string name="manual_ip_hint">Server IP (e.g. 192.168.1.20)</string>
+    <string name="connect">Connect</string>
+    <string name="rescan">Rescan</string>
+    <string name="playback_error">Playback error: %1$s\n%2$s\n\nAudio track: %3$s\nHDMI sink supports: %4$s\n\nPress Back and try another file, or check the Fire TV Surround Sound setting.</string>
+</resources>
