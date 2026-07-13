@@ -37,14 +37,10 @@ func makeSampleMP4(t *testing.T) string {
 	return out
 }
 
-// mp4 chapters are invisible to the MKV parser; chaptersFor must fall back to
-// ffprobe. This is the exact case the user hit: an mp4 with chapter markers.
+// An mp4 with chapter markers must surface them via ffprobe — the exact case
+// the user hit (an mp4 whose chapters were previously ignored).
 func TestChaptersForMP4ViaFFprobe(t *testing.T) {
 	mp4 := makeSampleMP4(t)
-
-	if got := parseChapters(mp4); got != nil {
-		t.Fatalf("parseChapters (MKV-only) should return nil for mp4, got %v", got)
-	}
 
 	ch := chaptersFor(mp4)
 	if len(ch) != 2 {
@@ -58,14 +54,10 @@ func TestChaptersForMP4ViaFFprobe(t *testing.T) {
 	}
 }
 
-// mp4 duration is invisible to the MKV parser; mediaDurationMs must fall back to
-// ffprobe so the scrubbing storyboard is enabled for mp4 files.
+// mediaDurationMs must report an mp4's duration (via ffprobe) so the scrubbing
+// storyboard is enabled for mp4 files.
 func TestMediaDurationMP4ViaFFprobe(t *testing.T) {
 	mp4 := makeSampleMP4(t)
-
-	if got := parseDuration(mp4); got != 0 {
-		t.Fatalf("parseDuration (MKV-only) should return 0 for mp4, got %d", got)
-	}
 
 	ms := mediaDurationMs(mp4)
 	if ms < 2500 || ms > 3500 {

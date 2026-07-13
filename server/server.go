@@ -64,12 +64,13 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		}, nil
 	}
 	chapters := chaptersFor(mediaPath)
-	// Prefer ffprobe (reads the real stream + Dolby Vision profile); fall back
-	// to the MKV container's colour tags if ffprobe isn't available.
+	// ffprobe reads the real stream (colour + Dolby Vision profile). Without it
+	// there's no metadata at all, so default to SDR — thumbnails/storyboard are
+	// disabled anyway (they need ffmpeg), making the HDR flag moot.
 	probe, ok := probeMedia(mediaPath)
 	if !ok {
-		probe = mediaProbe{isHDR: parseIsHDR(mediaPath), dvProfile: -1}
-		probe.summary = fmt.Sprintf("HDR=%v (from MKV container tags; ffprobe unavailable)", probe.isHDR)
+		probe = mediaProbe{isHDR: false, dvProfile: -1}
+		probe.summary = "ffprobe unavailable — HDR/Dolby Vision detection disabled"
 	}
 	hdr := probe.isHDR
 	// Keep the thumbnail/storyboard caches next to the executable (in cache/)

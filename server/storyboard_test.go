@@ -9,9 +9,12 @@ import (
 	"testing"
 )
 
-func TestParseDurationFromFixture(t *testing.T) {
+func TestMediaDurationFromFixture(t *testing.T) {
+	if findFFprobe() == "" {
+		t.Skip("ffprobe not installed; duration comes from ffprobe")
+	}
 	// The fixture is a 30-second clip.
-	ms := parseDuration(filepath.Join("testdata", "chapters_sample.mkv"))
+	ms := mediaDurationMs(filepath.Join("testdata", "chapters_sample.mkv"))
 	if ms < 29_000 || ms > 31_000 {
 		t.Errorf("duration = %dms, want ~30000", ms)
 	}
@@ -19,7 +22,7 @@ func TestParseDurationFromFixture(t *testing.T) {
 
 func TestStoryboardGeneration(t *testing.T) {
 	path := filepath.Join("testdata", "chapters_sample.mkv")
-	sb := newStoryboard(path, parseDuration(path), 5000, parseIsHDR(path), t.TempDir()) // 5s interval over ~30s
+	sb := newStoryboard(path, mediaDurationMs(path), 5000, false, t.TempDir()) // 5s interval over ~30s
 	t.Cleanup(sb.cleanup)
 	if sb.ffmpegPath == "" {
 		t.Skip("ffmpeg not installed")

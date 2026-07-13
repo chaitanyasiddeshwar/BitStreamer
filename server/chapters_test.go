@@ -11,8 +11,11 @@ import (
 
 // testdata/chapters_sample.mkv is a tiny ffmpeg-generated MKV with three
 // named chapters at 0s / 10s / 20s.
-func TestParseChaptersFromFixture(t *testing.T) {
-	chapters := parseChapters(filepath.Join("testdata", "chapters_sample.mkv"))
+func TestChaptersForFixture(t *testing.T) {
+	if findFFprobe() == "" {
+		t.Skip("ffprobe not installed; chapters come from ffprobe")
+	}
+	chapters := chaptersFor(filepath.Join("testdata", "chapters_sample.mkv"))
 	if len(chapters) != 3 {
 		t.Fatalf("got %d chapters, want 3: %+v", len(chapters), chapters)
 	}
@@ -28,19 +31,19 @@ func TestParseChaptersFromFixture(t *testing.T) {
 	}
 }
 
-func TestParseChaptersNonMkv(t *testing.T) {
+func TestChaptersForNonMedia(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "notmkv.bin")
-	if err := os.WriteFile(path, []byte("this is not a matroska file"), 0o644); err != nil {
+	path := filepath.Join(dir, "notmedia.bin")
+	if err := os.WriteFile(path, []byte("this is not a media file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := parseChapters(path); got != nil {
-		t.Errorf("expected nil chapters for non-MKV, got %+v", got)
+	if got := chaptersFor(path); got != nil {
+		t.Errorf("expected nil chapters for non-media file, got %+v", got)
 	}
 }
 
-func TestParseChaptersMissingFile(t *testing.T) {
-	if got := parseChapters("/no/such/file.mkv"); got != nil {
+func TestChaptersForMissingFile(t *testing.T) {
+	if got := chaptersFor("/no/such/file.mkv"); got != nil {
 		t.Errorf("expected nil chapters for missing file, got %+v", got)
 	}
 }

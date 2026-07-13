@@ -7,13 +7,6 @@ import (
 	"testing"
 )
 
-func TestParseIsHDROnSdrFixture(t *testing.T) {
-	// The fixture is plain SDR (testsrc), so HDR must be false.
-	if parseIsHDR(filepath.Join("testdata", "chapters_sample.mkv")) {
-		t.Error("SDR fixture reported as HDR")
-	}
-}
-
 func TestVideoFilterChains(t *testing.T) {
 	if got := videoFilter(320, false); got != "scale=320:-2" {
 		t.Errorf("SDR filter = %q", got)

@@ -16,7 +16,7 @@ func fixtureThumbnailer(t *testing.T) *thumbnailer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newThumbnailer(path, info.ModTime(), parseChapters(path), parseIsHDR(path), t.TempDir())
+	return newThumbnailer(path, info.ModTime(), chaptersFor(path), false /* SDR fixture */, t.TempDir())
 }
 
 func TestThumbnailGeneration(t *testing.T) {

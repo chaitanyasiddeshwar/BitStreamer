@@ -43,7 +43,7 @@ position follows the thumb — a "trickplay"/"storyboard" preview. Unlike chapte
 What shipped (matching the design below): server `storyboard.go` generates sprite sheets at
 startup via ffmpeg into `cache/storyboard/` next to the executable (wiped at start and on
 Ctrl+C/SIGTERM — per-session), duration comes
-from `go-mkvparse` (`duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
+from ffprobe (`mediaDurationMs` in `duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
 manifest and sheets. The interval is the **`--interval <secs>` flag (default 30)**. The
 client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, crops the
 tile for the scrub position, and shows it; it also sets the seek-bar D-pad step to the same
@@ -68,9 +68,10 @@ ffmpeg -i <file> -vf "fps=1/<T>,scale=240:-2,tile=10x10" -q:v 5 <cache>/sb_%03d.
 
 ### Server
 
-- **Duration**: needed to know how many tiles. Get it from the MKV header via the vendored
-  `go-mkvparse` (SegmentInfo `Duration` × `TimecodeScale`) — no extra dependency. (ffprobe
-  would also work but adds a second sidecar binary.)
+- **Duration**: needed to know how many tiles. Read via `ffprobe -show_entries
+  format=duration` (`mediaDurationMs` in `duration.go`) — the same ffprobe sidecar used for
+  chapters and HDR detection, so no code path is MKV-specific and any container ffprobe
+  understands works.
 - **Generation**: at startup, in the background (same as chapter warm), run the ffmpeg
   command above into a **per-session** temp dir. This is the expensive part — see cost.
 - **Endpoints**:

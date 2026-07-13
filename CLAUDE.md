@@ -15,8 +15,9 @@ media samples on the server, it is the wrong change.
 ## Repository layout
 
 ```
-server/   Go media server (stdlib + one vendored MKV parser; single self-contained
-          binary — bitstreamer.exe on Windows, bitstreamer on macOS/Linux)
+server/   Go media server (Go standard library only; single self-contained
+          binary — bitstreamer.exe on Windows, bitstreamer on macOS/Linux.
+          Optional ffmpeg/ffprobe sidecars enable chapters/thumbnails/previews)
 client/   Android TV app for Fire TV (Kotlin, Media3/ExoPlayer, Gradle)
 docs/     Project plan and design docs — read before implementing
 ```
@@ -37,7 +38,10 @@ Key docs:
 - **Server**: Go, standard library only (`net/http` + `http.ServeContent` for Range
   serving, `net` for UDP discovery). No cgo, no third-party modules, no platform-specific
   code → develops and tests on any OS, cross-compiles to a dependency-free
-  `bitstreamer.exe`. No media libraries at all — the server never parses the file.
+  `bitstreamer.exe`. The server never touches media samples. Metadata (chapters,
+  duration, HDR/Dolby Vision) and thumbnails/previews come from optional external
+  `ffmpeg`/`ffprobe` sidecars — never bundled, never linked; the server shells out
+  to them if present and degrades gracefully (with a printed warning) if not.
 - **Client**: Kotlin, androidx.media3 (ExoPlayer) 1.10.x, classic Views + Media3 `PlayerView`
   (built-in D-pad support), minSdk 25 (Fire OS 6 / Fire TV Stick 4K 1st gen), no Compose,
   no Leanback library.
@@ -82,11 +86,13 @@ broadcast (port 46899); HTTP serves on 46898.
   discovery and firewall rules depend on them.
 - Discovery and `/info` payloads are versioned JSON (`"v": 1`). Additive changes only;
   bump `v` on breaking changes.
-- Server code: Go stdlib only, with one vetted exception — the pure-Go, MIT
-  `go-mkvparse` parser is **vendored** in `server/third_party/mkvparse/` (used by
-  `chapters.go` to read MKV chapter markers; reason: EBML binary parsing is fiddly and a
-  parser bug already bit us once on the client). It is stdlib-only itself, so the single
-  static exe and cross-compile are unaffected. Any *further* dependency needs a written
+- Server code: **Go stdlib only** — no third-party modules at all. Chapters, duration,
+  and HDR/Dolby Vision detection all go through `ffprobe` (a single code path for every
+  container: `chaptersFor` in `chapters.go`, `mediaDurationMs` in `duration.go`, `probeMedia`
+  in `probe.go`); thumbnails and scrubbing previews go through `ffmpeg`. Both are optional
+  external sidecars found next to the exe or on PATH — never bundled or linked — so the
+  single static exe and cross-compile are unaffected, and the server prints an explicit
+  warning naming what's disabled when they're missing. Any dependency needs a written
   reason here. No global state beyond the single served-file config.
 - Client: all playback configuration lives in one factory (`PlayerFactory`); never scatter
   ExoPlayer tweaks across activities. Log the negotiated audio pipeline on every playback
