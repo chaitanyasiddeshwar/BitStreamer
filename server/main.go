@@ -105,6 +105,9 @@ func main() {
 			fmt.Println("HDR thumbnails: not tonemapped (this ffmpeg has no zscale; build with --enable-libzimg)")
 		}
 	}
+	if app.probe.dvProfile == 7 {
+		fmt.Print(dolbyVisionAdvisory(flag.Arg(0)))
+	}
 	if app.thumbs.available() || app.story.enabled() {
 		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
 	}

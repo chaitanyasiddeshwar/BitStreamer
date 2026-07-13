@@ -115,6 +115,28 @@ func orNA(s string) string {
 	return s
 }
 
+// noDVPath returns the media path with "_no_dv" inserted before the extension,
+// e.g. /movies/Titanic.mkv -> /movies/Titanic_no_dv.mkv.
+func noDVPath(mediaPath string) string {
+	ext := filepath.Ext(mediaPath)
+	return strings.TrimSuffix(mediaPath, ext) + "_no_dv" + ext
+}
+
+// dolbyVisionAdvisory is the console message shown for Dolby Vision Profile 7
+// files: they may be MEL (play fine) or FEL (audio + black screen on Fire TV).
+// The printed ffmpeg command losslessly strips the DV RPU (NAL 62) and
+// enhancement layer (NAL 63), leaving the HDR10 base layer.
+func dolbyVisionAdvisory(mediaPath string) string {
+	out := noDVPath(mediaPath)
+	return "" +
+		"\n⚠ Dolby Vision Profile 7 detected.\n" +
+		"  If the video plays, ignore this. If you get audio but a BLACK screen\n" +
+		"  (Profile 7 \"FEL\"), Fire TV cannot decode it. Convert to HDR10 once —\n" +
+		"  lossless and fast (no re-encode), keeps all audio/subtitles:\n\n" +
+		fmt.Sprintf("    ffmpeg -i \"%s\" -map 0 -c copy -bsf:v \"filter_units=remove_types=62|63\" \"%s\"\n\n", mediaPath, out) +
+		"  Then run bitstreamer on the *_no_dv file instead.\n"
+}
+
 // findFFprobe looks next to the executable first, then on PATH. Returns "".
 func findFFprobe() string {
 	names := []string{"ffprobe", "ffprobe.exe"}

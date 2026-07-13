@@ -49,7 +49,9 @@ Media3 does the heavy lifting.
   dual-layer is not playable on Fire TV without transcoding** (black screen), an OS/hardware
   limitation ([androidx/media #957](https://github.com/androidx/media/issues/957),
   [#1895](https://github.com/androidx/media/issues/1895)). The server still reports the DV
-  profile and HDR10+ in `/info` (shown in the discovery details table and stats overlay).
+  profile and HDR10+ in `/info` (shown in the discovery details table and stats overlay), and
+  prints an ffmpeg strip-to-HDR10 command for Profile 7 files. Full details:
+  [HDR_DOLBY_VISION.md](HDR_DOLBY_VISION.md).
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 
