@@ -29,15 +29,20 @@ apps can't intercept. That's why the stats overlay is on Menu.
 
 | Button | Action |
 |---|---|
-| Select / OK (center) | Toggle play/pause — works even with the controls hidden. (When a control icon is focused, it activates that icon instead.) |
+| Select / OK (clean frame) | Toggle play/pause. There are no center transport buttons — OK on the movie image is play/pause. |
+| Select / OK (while seeking) | Commit the seek and keep the current play/pause state — playing resumes from the new point, paused stays paused. On a control icon, activates it. |
 | D-pad left / right (on seek bar) | Scrub by the storyboard interval (default 30 s), landing on the next preview frame |
 | Rewind / Fast-forward | Seek −10 s / +30 s |
-| D-pad up (from seek bar) | Move to the play/pause row |
 | D-pad down (from seek bar) | Move to the Audio / Subtitles / Chapters / Stats icon row; down again opens Chapters |
 | **Menu (≡)** | Toggle the "stats for nerds" overlay (also the Stats icon) |
 | Back | Hide the controls if shown; otherwise stop and exit (playback position is saved for resume) |
 
 Notes:
+- **No center transport cluster**: the middle-of-screen rewind / play-pause / fast-forward
+  buttons are removed — play/pause is OK on the clean frame, seeking is the D-pad.
+- **Pausing doesn't dim**: the controller does not auto-show on pause (`controllerAutoShow`
+  off), so pausing leaves the picture undimmed. Controls appear only on a D-pad press and
+  auto-hide after 2.5 s (`controllerShowTimeoutMs`).
 - The stats overlay is **independent of the control bar** — once toggled on (Menu or the
   Stats icon) it stays until toggled off, even after the controls auto-hide.
 - Releasing a scrub starts playback ~2 s before the chosen point, so the scene shown in the

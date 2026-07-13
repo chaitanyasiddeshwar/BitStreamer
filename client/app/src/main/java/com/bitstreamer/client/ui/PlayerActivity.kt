@@ -459,6 +459,11 @@ class PlayerActivity : Activity() {
      * option row. See docs/MEDIA3.md for the D-pad layer design.
      */
     private fun setupControls() {
+        // Controls hide quickly (2.5s) back to the clean movie frame, and do NOT
+        // auto-appear on pause — pausing (OK on the clean frame) leaves the image
+        // undimmed instead of popping the darkened control scrim.
+        playerView.controllerShowTimeoutMs = 2_500
+        playerView.controllerAutoShow = false
         playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.VISIBLE) {
@@ -729,18 +734,18 @@ class PlayerActivity : Activity() {
             playerView.hideController()
             return true
         }
-        // Center/OK toggles play <-> pause during playback, unless a controller
-        // button (Audio/Subtitles/Chapters/Stats) is focused — then it must
-        // activate that button. Images have no play/pause. Swallow both DOWN and
-        // UP so no stray click reaches the controller.
+        // Center/OK on the clean frame (controls hidden) toggles play <-> pause.
+        // When the controls ARE up we deliberately DON'T intercept it: OK then
+        // goes to the focused control — committing an in-progress seek on the
+        // time bar (playback keeps its play/pause state, so seeking while playing
+        // resumes from the new point and seeking while paused stays paused), or
+        // activating an Audio/Subtitles/Chapters/Stats button. Images have no
+        // play/pause. Swallow DOWN+UP so no stray click reaches the controller.
         if ((event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) &&
-            !isImage(currentTitle)
+            !isImage(currentTitle) && !playerView.isControllerFullyVisible
         ) {
-            val focusedId = currentFocus?.id
-            val onControlButton = focusedId == R.id.btn_audio || focusedId == R.id.btn_subtitles ||
-                focusedId == R.id.btn_chapters || focusedId == R.id.btn_stats
             val p = player
-            if (!onControlButton && p != null &&
+            if (p != null &&
                 p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED
             ) {
                 if (event.action == KeyEvent.ACTION_DOWN) {

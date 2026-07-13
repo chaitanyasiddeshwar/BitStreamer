@@ -2,12 +2,11 @@
 <!--
   Custom Media3 controller layout. Based on the default styled controller, but
   reordered/trimmed for TV D-pad use (see PlayerActivity + docs/MEDIA3.md):
-    time bar  = default focus  -> D-pad LEFT/RIGHT scrubs
-    UP        -> center play/pause row
+    time bar  = default focus  -> D-pad LEFT/RIGHT scrubs, OK commits the seek
     DOWN      -> options row (Audio / Subtitles / Chapters)
-  Reuses Media3's own button includes and styles so icons/behavior match the
-  stock controller. IDs prefixed exo_ are wired automatically by Media3;
-  btn_* are wired by PlayerActivity.
+  No center transport buttons: play/pause is the OK key on the clean frame, and
+  seeking is the D-pad, so the middle-of-screen rew/play/ffwd cluster is omitted.
+  IDs prefixed exo_ are wired automatically by Media3; btn_* by PlayerActivity.
 -->
 <merge xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
@@ -17,48 +16,6 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="#66000000" />
-
-    <!-- Center transport controls: rewind / play-pause / fast-forward.
-         Each has a foreground focus ring so the selected control is visible on
-         TV (the Media3 button icons otherwise show no focus state). -->
-    <LinearLayout
-        android:id="@id/exo_center_controls"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:clipToPadding="false"
-        android:padding="16dp">
-
-        <FrameLayout
-            style="@style/ExoStyledControls.Button.Center"
-            android:addStatesFromChildren="true"
-            android:foreground="@drawable/control_focus_fg">
-
-            <Button
-                android:id="@id/exo_rew_with_amount"
-                style="@style/ExoStyledControls.Button.Center.RewWithAmount"
-                android:background="@drawable/exo_styled_controls_rewind"
-                android:singleLine="false" />
-        </FrameLayout>
-
-        <ImageButton
-            android:id="@id/exo_play_pause"
-            style="@style/ExoStyledControls.Button.Center.PlayPause"
-            android:foreground="@drawable/control_focus_fg"
-            android:nextFocusDown="@id/exo_progress" />
-
-        <FrameLayout
-            style="@style/ExoStyledControls.Button.Center"
-            android:addStatesFromChildren="true"
-            android:foreground="@drawable/control_focus_fg">
-
-            <Button
-                android:id="@id/exo_ffwd_with_amount"
-                style="@style/ExoStyledControls.Button.Center.FfwdWithAmount"
-                android:background="@drawable/exo_styled_controls_fastforward" />
-        </FrameLayout>
-    </LinearLayout>
 
     <!-- Bottom stack: time bar + options row -->
     <LinearLayout
@@ -85,7 +42,6 @@
                 android:layout_width="0dp"
                 android:layout_height="26dp"
                 android:layout_weight="1"
-                android:nextFocusUp="@id/exo_play_pause"
                 android:nextFocusDown="@id/btn_audio"
                 app:ad_marker_color="#FFFFFFFF"
                 app:played_ad_marker_color="#FFFFFFFF" />
