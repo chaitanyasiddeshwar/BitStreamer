@@ -8,7 +8,7 @@ Fire TV; this documents why, and the server-side ffmpeg approach that replaced i
 - Server (`thumbnails.go`): detects `ffmpeg` next to the exe or on `PATH`; if present,
   `GET /chapter-thumb?index=N` returns a JPEG generated on first request (`ffmpeg -ss
   <start+5s> -i file -frames:v 1 -vf scale=320:-2 -f mjpeg`), cached to
-  `%TEMP%/bitstreamer-thumbs` keyed by file+mtime+index, with concurrency capped at 3.
+  `cache/thumbs/` next to the executable, keyed by file+mtime+hdr+index, concurrency capped at 3.
   `/info` reports `"thumbnails": true` only when ffmpeg is available.
 - Client: `ChapterThumbnailLoader` fetches `/chapter-thumb?index=N` over HTTP and caches
   the bitmaps. When `/info` says `thumbnails:false`, the chapter selector hides the image
@@ -41,7 +41,8 @@ position follows the thumb — a "trickplay"/"storyboard" preview. Unlike chapte
 (one per chapter), this needs a **dense, regular grid** of frames across the whole movie.
 
 What shipped (matching the design below): server `storyboard.go` generates sprite sheets at
-startup via ffmpeg into a per-session temp dir (deleted on Ctrl+C/SIGTERM), duration comes
+startup via ffmpeg into `cache/storyboard/` next to the executable (wiped at start and on
+Ctrl+C/SIGTERM — per-session), duration comes
 from `go-mkvparse` (`duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
 manifest and sheets. The interval is the **`--interval <secs>` flag (default 30)**. The
 client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, crops the

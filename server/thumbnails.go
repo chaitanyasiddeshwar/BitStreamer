@@ -33,8 +33,7 @@ type thumbnailer struct {
 	locks map[int]*sync.Mutex // per-index lock: no duplicate generation
 }
 
-func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter, hdr bool) *thumbnailer {
-	cacheDir := filepath.Join(os.TempDir(), "bitstreamer-thumbs")
+func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter, hdr bool, cacheDir string) *thumbnailer {
 	_ = os.MkdirAll(cacheDir, 0o755)
 	return &thumbnailer{
 		ffmpegPath: findFFmpeg(),

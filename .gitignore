@@ -4,6 +4,8 @@ server/bitstreamer
 server/bitstreamer.exe
 server/bitstreamer-*
 server/dist/
+server/cache/
+cache/
 client.apk
 *.apk
 client-logs.txt

@@ -72,6 +72,12 @@ The APK builds to `client/app/build/outputs/apk/<variant>/`, and a post-build st
 **automatically copies it to `dist/client.apk`** — the spot the server serves it from. No
 manual copying needed. (Android Studio's Run triggers `assembleDebug`, which copies too.)
 
+App icon / banner: the launcher icon (`res/drawable/app_icon.xml`) and the Fire TV home
+banner (`res/drawable/banner.xml`) are vector drawables — no image assets needed. To use
+your own artwork, drop a PNG (e.g. `res/mipmap/ic_launcher.png` for the icon,
+`res/drawable/banner.png` at 320×180 for the banner) and point `android:icon` /
+`android:banner` at it in the manifest. PNG and WebP are both supported.
+
 Signing: the release build is signed with the local debug keystore so `assembleRelease`
 produces an installable APK with no keystore setup. That's fine for personal sideloading;
 just keep building on the same machine so app upgrades share a signing key.

@@ -54,6 +54,9 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		probe.summary = fmt.Sprintf("HDR=%v (from MKV container tags; ffprobe unavailable)", probe.isHDR)
 	}
 	hdr := probe.isHDR
+	// Keep the thumbnail/storyboard caches next to the executable (in cache/)
+	// rather than the system temp dir, so cleanup is just deleting that folder.
+	cacheRoot := filepath.Join(executableDir(), "cache")
 	return &app{
 		mediaPath:     mediaPath,
 		mediaName:     filepath.Base(mediaPath),
@@ -66,10 +69,19 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		clientLogPath: clientLogPath,
 		resume:        newResumeStore(resumePath, mediaPath),
 		chapters:      chapters,
-		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr),
-		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr),
+		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
+		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
 		probe:         probe,
 	}, nil
+}
+
+// executableDir returns the directory of the running binary (where cache/,
+// client-logs.txt etc. live), or "." if it can't be determined.
+func executableDir() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe)
+	}
+	return "."
 }
 
 // mimeForPath maps by extension explicitly: OS mime tables often lack .mkv,

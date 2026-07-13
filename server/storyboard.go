@@ -41,17 +41,18 @@ type storyboard struct {
 	sheetCount int
 }
 
-func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool) *storyboard {
-	dir, err := os.MkdirTemp("", "bitstreamer-sb-")
-	if err != nil {
-		dir = ""
+func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool, cacheDir string) *storyboard {
+	// Per-session: wipe any leftovers from a previous run and start fresh.
+	os.RemoveAll(cacheDir)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		cacheDir = "" // disables the storyboard (enabled() checks cacheDir)
 	}
 	return &storyboard{
 		ffmpegPath: findFFmpeg(),
 		mediaPath:  mediaPath,
 		durationMs: durationMs,
 		intervalMs: intervalMs,
-		cacheDir:   dir,
+		cacheDir:   cacheDir,
 		hdr:        hdr,
 		sem:        make(chan struct{}, 4),
 	}

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Fire TV home-screen banner (rendered ~320x180): gradient + streaming glyph.
-     A PNG with the app name/logo can replace this for a more polished look. -->
+<!-- Launcher icon: gradient rounded square + the streaming glyph. Vector, so no
+     PNG assets needed. Swap for PNG mipmaps later if desired (see docs). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
@@ -8,11 +8,12 @@
                 android:startColor="#1A2980"
                 android:endColor="#26D0CE"
                 android:angle="45" />
+            <corners android:radius="18dp" />
         </shape>
     </item>
     <item
-        android:width="96dp"
-        android:height="96dp"
+        android:width="64dp"
+        android:height="64dp"
         android:gravity="center"
         android:drawable="@drawable/ic_glyph" />
 </layer-list>
