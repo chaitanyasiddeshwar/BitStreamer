@@ -15,6 +15,16 @@ Both builds output into a shared **`dist/`** folder at the repo root: the server
 `client.apk` (sitting next to it) at `/client.apk` for the Fire TV Downloader app. So a full
 build leaves you with a ready-to-run `dist/`.
 
+**One command builds both:**
+
+```
+./build.sh              # macOS/Linux — native server + client APK into dist/
+./build.sh windows      # server as Windows x64 exe (+ client APK), from any host
+build.bat               # Windows — bitstreamer.exe + client APK into dist/
+```
+
+The sections below cover building each half on its own.
+
 ### Prerequisites
 
 - **Server**: [Go](https://go.dev/dl/) ≥ 1.23. (Optional: `make` for the convenience targets;
