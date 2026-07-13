@@ -224,6 +224,7 @@ func TestMimeForPath(t *testing.T) {
 	cases := map[string]string{
 		"a.mp4": "video/mp4", "b.MKV": "video/x-matroska", "c.mov": "video/quicktime",
 		"d.webm": "video/webm", "e.avi": "application/octet-stream",
+		"f.ts": "video/mp2t", "g.m2ts": "video/mp2t", "h.MTS": "video/mp2t",
 	}
 	for path, want := range cases {
 		if got := mimeForPath(path); got != want {

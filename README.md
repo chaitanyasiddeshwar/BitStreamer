@@ -8,6 +8,14 @@ audio bitstreamed over HDMI to your TV or AV receiver.
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
 - `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [HDR & Dolby Vision](docs/HDR_DOLBY_VISION.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md) · [remote key map](docs/REMOTE.md)
 
+## Supported files
+
+MKV and MP4 are the sweet spot; plain `.ts`, `.mov`, and `.webm` work too. Blu-ray
+transport streams (`.m2ts`/`.mts`) can't be played by the Fire TV client (ExoPlayer can't
+parse their 192-byte packets) — the server prints a one-line lossless `ffmpeg` remux-to-MKV
+command when you load one. Dolby Vision Profile 7 **FEL** files play audio only (black video),
+also with a printed fix — see [docs/HDR_DOLBY_VISION.md](docs/HDR_DOLBY_VISION.md).
+
 ## Building
 
 Both builds output into a shared **`dist/`** folder at the repo root: the server binary and

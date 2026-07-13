@@ -98,9 +98,36 @@ func mimeForPath(path string) string {
 		return "video/quicktime"
 	case ".webm":
 		return "video/webm"
+	case ".ts", ".m2ts", ".mts":
+		return "video/mp2t"
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// remuxMkvPath returns the media path with its extension changed to .mkv.
+func remuxMkvPath(mediaPath string) string {
+	ext := filepath.Ext(mediaPath)
+	return strings.TrimSuffix(mediaPath, ext) + ".mkv"
+}
+
+// containerAdvisory returns a console message for containers the Fire TV client
+// can't play, or "" for playable ones. .m2ts/.mts are Blu-ray BDAV transport
+// streams with 192-byte packets, which ExoPlayer's TsExtractor (188-byte only)
+// cannot parse; the fix is a lossless remux to MKV.
+func containerAdvisory(mediaPath string) string {
+	switch strings.ToLower(filepath.Ext(mediaPath)) {
+	case ".m2ts", ".mts":
+		out := remuxMkvPath(mediaPath)
+		return "" +
+			"\n⚠ Blu-ray transport stream (" + filepath.Ext(mediaPath) + ") detected.\n" +
+			"  The Fire TV client (ExoPlayer) can't parse 192-byte M2TS packets, so this\n" +
+			"  file won't play. Remux to MKV once — lossless and fast (no re-encode),\n" +
+			"  keeps every video/audio/subtitle track:\n\n" +
+			fmt.Sprintf("    ffmpeg -i \"%s\" -map 0 -c copy \"%s\"\n\n", mediaPath, out) +
+			"  Then run bitstreamer on the .mkv instead.\n"
+	}
+	return ""
 }
 
 func (a *app) handler() http.Handler {
