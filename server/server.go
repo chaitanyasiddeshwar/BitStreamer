@@ -35,6 +35,7 @@ type app struct {
 	thumbs        *thumbnailer
 	story         *storyboard
 	probe         mediaProbe
+	cacheRoot     string
 }
 
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
@@ -72,6 +73,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
 		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
 		probe:         probe,
+		cacheRoot:     cacheRoot,
 	}, nil
 }
 

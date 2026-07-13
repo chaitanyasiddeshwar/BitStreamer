@@ -109,7 +109,9 @@ bitstreamer.exe --interval 20 "C:\Movies\film.mkv"      # denser scrub previews 
 The server prints the stream URL, the APK URL, and whether chapter thumbnails / scrub
 previews are enabled. `--interval <secs>` (default 30) sets the spacing of the scrubbing
 preview frames; the client also uses it as the seek-bar step, so each D-pad left/right on
-the seek bar jumps one interval and lands on the next preview frame.
+the seek bar jumps one interval and lands on the next preview frame. The thumbnail/scrub
+cache (`cache/` next to the binary) is deleted on exit; pass `--keep-cache` to keep it
+across runs (faster restarts).
 
 Silent firewall setup on Windows (admin prompt, one time):
 

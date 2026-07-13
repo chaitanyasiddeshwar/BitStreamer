@@ -27,6 +27,7 @@ func main() {
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
+	keepCache := flag.Bool("keep-cache", false, "keep the thumbnail/storyboard cache on exit instead of deleting it")
 	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
@@ -105,12 +106,15 @@ func main() {
 		go app.story.generate()
 	}
 
-	// Per-session storyboard cache: remove it on Ctrl+C / termination.
+	// On Ctrl+C / termination, delete the whole cache (thumbnails + storyboard)
+	// unless --keep-cache was passed.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		app.story.cleanup()
+		if !*keepCache {
+			os.RemoveAll(app.cacheRoot)
+		}
 		os.Exit(0)
 	}()
 

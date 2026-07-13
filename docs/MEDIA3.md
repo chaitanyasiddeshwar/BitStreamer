@@ -41,13 +41,15 @@ Media3 does the heavy lifting.
 - Chapter selector (name + timestamp per row). On-device thumbnails via
   `MediaMetadataRetriever` were tried but return black/null on Fire TV (single HW decoder
   busy with playback) — moving to server-side ffmpeg; see [THUMBNAILS.md](THUMBNAILS.md)
-- **Dolby Vision → HDR10 fallback**: a custom `MediaCodecSelector` in `PlayerFactory`
-  returns no decoder for the `video/dolby-vision` mime, so Media3 falls back to its own
-  HEVC/AVC decoder and plays the HDR10-compatible base layer. This works around the Fire TV
-  DV black-screen bug (audio only) on Profile 7 dual-layer and DV+HDR10+ MKVs
-  ([androidx/media #957](https://github.com/androidx/media/issues/957),
-  [#1895](https://github.com/androidx/media/issues/1895)). Toggle with
-  `DISABLE_DOLBY_VISION`.
+- **Dolby Vision**: the native platform DV decoder is used for all DV content. Forcing the
+  HEVC base layer (to dodge the Fire TV DV black screen) was tried and **reverted** — on
+  Profile 7 FEL it produces no video decoder at all (ERROR_CODE_TIMEOUT), and it needlessly
+  broke Profile 8 DV+HDR10+ that plays fine natively (verified on a Fire TV Stick 4K Max).
+  Net: single-layer DV (Profile 5/8, incl. DV+HDR10+) plays with full DV; **Profile 7 FEL
+  dual-layer is not playable on Fire TV without transcoding** (black screen), an OS/hardware
+  limitation ([androidx/media #957](https://github.com/androidx/media/issues/957),
+  [#1895](https://github.com/androidx/media/issues/1895)). The server still reports the DV
+  profile and HDR10+ in `/info` (shown in the discovery details table and stats overlay).
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 

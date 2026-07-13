@@ -202,12 +202,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        // Fire TV black-screens on DV Profile 7 (dual layer) and DV+HDR10+ combos;
-        // for those, fall back to the HDR10 base layer. Ordinary single-layer DV
-        // (profile 5 / 8.1 without HDR10+) plays fine, so leave it on the DV path.
-        val disableDv = srcDvProfile == 7 || (srcDvProfile >= 0 && srcHdr10Plus)
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus -> disableDolbyVision=$disableDv")
-        val exoPlayer = PlayerFactory.create(this, disableDv)
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus (native DV decoder)")
+        val exoPlayer = PlayerFactory.create(this)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
         setupControls()
@@ -655,20 +651,23 @@ class PlayerActivity : Activity() {
     /** Colour/HDR from the server's ffprobe (authoritative; Media3's client-side
      *  colorInfo is unreliable and often reports HDR sources as SDR). */
     private fun sourceColorStr(): String {
-        val transfer = when {
-            srcTransfer == "smpte2084" -> "HDR10 (PQ)"
-            srcTransfer == "arib-std-b67" -> "HLG"
-            srcHdr -> "HDR"
-            else -> "SDR"
-        }
+        val parts = mutableListOf(
+            when {
+                srcTransfer == "smpte2084" -> "HDR10"
+                srcTransfer == "arib-std-b67" -> "HLG"
+                srcHdr -> "HDR"
+                else -> "SDR"
+            }
+        )
+        if (srcHdr10Plus) parts.add("HDR10+")
+        if (srcDvProfile >= 0) parts.add("DV p$srcDvProfile")
         val space = when (srcColorSpace) {
             "bt2020nc", "bt2020c" -> "BT.2020"
             "bt709" -> "BT.709"
-            "" -> ""
-            else -> srcColorSpace
+            else -> ""
         }
-        val dv = if (srcDvProfile >= 0) " · DV p$srcDvProfile" else ""
-        return if (space.isEmpty()) "$transfer$dv" else "$transfer / $space$dv"
+        val s = parts.joinToString(" + ")
+        return if (space.isEmpty()) s else "$s · $space"
     }
 
     private fun playbackStateName(state: Int?): String = when (state) {
