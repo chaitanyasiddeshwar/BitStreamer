@@ -38,7 +38,7 @@ func probeMedia(path string) (mediaProbe, bool) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	ffmpegLog.record("ffprobe "+filepath.Base(path), stderr.Bytes(), err)
+	ffmpegLog.recordProbe("ffprobe streams "+filepath.Base(path), out, stderr.Bytes(), err)
 	if err != nil {
 		return mediaProbe{}, false
 	}
@@ -100,7 +100,7 @@ func probeHDR10Plus(ffprobe, path string) bool {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	ffmpegLog.record("ffprobe hdr10+ "+filepath.Base(path), stderr.Bytes(), err)
+	ffmpegLog.recordProbe("ffprobe hdr10+ "+filepath.Base(path), out, stderr.Bytes(), err)
 	if err != nil {
 		return false
 	}

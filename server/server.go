@@ -95,6 +95,61 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	}, nil
 }
 
+// logMetadata writes everything the server knows about the served file — the
+// consolidated result of every ffprobe/ffmpeg query — to the ffmpeg/ffprobe log
+// and echoes a copy to the console. Combined with the raw per-command output
+// (recordProbe), this makes the log a complete record of the media. No-op in
+// folder mode.
+func (a *app) logMetadata(ffprobeFound, ffmpegFound bool) {
+	if a.folderMode {
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "==== media metadata ====\n")
+	fmt.Fprintf(&b, "file:       %s\n", a.mediaName)
+	fmt.Fprintf(&b, "path:       %s\n", a.mediaPath)
+	fmt.Fprintf(&b, "size:       %d bytes (%s)\n", a.mediaSize, formatSize(a.mediaSize))
+	fmt.Fprintf(&b, "mime:       %s\n", a.mediaMime)
+	fmt.Fprintf(&b, "modified:   %s\n", a.mediaMod.Format(time.RFC3339))
+	fmt.Fprintf(&b, "ffprobe:    %s\n", foundStr(ffprobeFound))
+	fmt.Fprintf(&b, "ffmpeg:     %s\n", foundStr(ffmpegFound))
+	dur := "unknown"
+	if a.story.durationMs > 0 {
+		dur = formatDuration(a.story.durationMs)
+	}
+	fmt.Fprintf(&b, "duration:   %s (%d ms)\n", dur, a.story.durationMs)
+	fmt.Fprintf(&b, "video:      %s\n", orNA(a.probe.summary))
+	fmt.Fprintf(&b, "  transfer=%s space=%s hdr=%v hdr10+=%v dvProfile=%d\n",
+		orNA(a.probe.colorTransfer), orNA(a.probe.colorSpace),
+		a.probe.isHDR, a.probe.hdr10plus, a.probe.dvProfile)
+	fmt.Fprintf(&b, "thumbnails: available=%v\n", a.thumbs.available())
+	fmt.Fprintf(&b, "storyboard: enabled=%v interval=%dms\n", a.story.enabled(), a.story.intervalMs)
+	fmt.Fprintf(&b, "chapters:   %d\n", len(a.chapters))
+	for i, c := range a.chapters {
+		fmt.Fprintf(&b, "  [%02d] %-9s %s\n", i+1, formatDuration(c.StartMs), c.Name)
+	}
+	s := strings.TrimRight(b.String(), "\n")
+	ffmpegLog.logf("%s", s)
+	fmt.Println(s)
+}
+
+func foundStr(found bool) string {
+	if found {
+		return "found"
+	}
+	return "NOT FOUND"
+}
+
+// formatDuration renders a non-negative millisecond timestamp as HH:MM:SS.
+// (0 is a valid timestamp, e.g. a chapter at the very start.)
+func formatDuration(ms int64) string {
+	if ms < 0 {
+		return "unknown"
+	}
+	s := ms / 1000
+	return fmt.Sprintf("%02d:%02d:%02d", s/3600, (s%3600)/60, s%60)
+}
+
 // executableDir returns the directory of the running binary (where cache/,
 // client-logs.txt etc. live), or "." if it can't be determined.
 func executableDir() string {

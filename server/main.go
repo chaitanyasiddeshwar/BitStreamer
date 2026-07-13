@@ -118,15 +118,19 @@ func main() {
 	if app.folderMode {
 		fmt.Println("Folder mode: no chapters/thumbnails/scrub previews (single-file mode only).")
 	} else {
+		ffprobeFound := findFFprobe() != ""
+		ffmpegFound := findFFmpeg() != ""
+		// Full metadata dump (to the console and the ffmpeg/ffprobe log file).
+		app.logMetadata(ffprobeFound, ffmpegFound)
 		// Chapters + duration come from ffprobe; thumbnails + scrubbing previews
 		// come from ffmpeg. If either is missing, say so explicitly — these are
 		// the only features that need the external tools.
-		if findFFprobe() == "" || findFFmpeg() == "" {
+		if !ffprobeFound || !ffmpegFound {
 			var missing []string
-			if findFFmpeg() == "" {
+			if !ffmpegFound {
 				missing = append(missing, "ffmpeg")
 			}
-			if findFFprobe() == "" {
+			if !ffprobeFound {
 				missing = append(missing, "ffprobe")
 			}
 			fmt.Printf("⚠ %s not found (looked next to the executable and on PATH).\n", strings.Join(missing, " and "))

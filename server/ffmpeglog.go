@@ -33,7 +33,9 @@ func initFFmpegLog(path string) {
 }
 
 // record appends a command's captured output. Silent successful runs (no output,
-// no error) are skipped, so the log stays focused on warnings and failures.
+// no error) are skipped, so the log stays focused on warnings and failures. Used
+// for the high-volume ffmpeg frame extractions (hundreds per storyboard). For
+// ffprobe metadata calls use recordProbe, which always logs.
 func (l *cmdLogger) record(desc string, output []byte, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -52,6 +54,40 @@ func (l *cmdLogger) record(desc string, output []byte, err error) {
 	if err != nil {
 		fmt.Fprintf(l.f, "  -> %v\n", err)
 	}
+}
+
+// recordProbe always logs an ffprobe (or other metadata) command: the command's
+// stdout (e.g. the JSON it returned), any stderr, and the exit status — even on a
+// clean run. This is what makes the metadata the server reads actually appear in
+// the log, instead of the previous "session started, then nothing".
+func (l *cmdLogger) recordProbe(desc string, stdout, stderr []byte, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f == nil {
+		return
+	}
+	status := "ok"
+	if err != nil {
+		status = err.Error()
+	}
+	fmt.Fprintf(l.f, "[%s] %s -> %s\n", time.Now().Format("15:04:05"), desc, status)
+	if s := bytes.TrimSpace(stdout); len(s) > 0 {
+		l.f.Write(s)
+		l.f.WriteString("\n")
+	}
+	if s := bytes.TrimSpace(stderr); len(s) > 0 {
+		fmt.Fprintf(l.f, "  stderr: %s\n", s)
+	}
+}
+
+// logf writes a free-form line to the log (used for the startup metadata dump).
+func (l *cmdLogger) logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f == nil {
+		return
+	}
+	fmt.Fprintf(l.f, format+"\n", args...)
 }
 
 // runLogged runs cmd, capturing its stderr into the log, and returns the error.

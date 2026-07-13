@@ -34,7 +34,7 @@ func chaptersFor(path string) []Chapter {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	ffmpegLog.record("ffprobe chapters "+filepath.Base(path), stderr.Bytes(), err)
+	ffmpegLog.recordProbe("ffprobe chapters "+filepath.Base(path), out, stderr.Bytes(), err)
 	if err != nil {
 		return nil
 	}

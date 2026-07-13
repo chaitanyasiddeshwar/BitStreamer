@@ -25,7 +25,7 @@ func mediaDurationMs(path string) int64 {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	ffmpegLog.record("ffprobe duration "+filepath.Base(path), stderr.Bytes(), err)
+	ffmpegLog.recordProbe("ffprobe duration "+filepath.Base(path), out, stderr.Bytes(), err)
 	if err != nil {
 		return 0
 	}
