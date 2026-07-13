@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -42,6 +43,7 @@ type app struct {
 	thumbs        *thumbnailer
 	story         *storyboard
 	probe         mediaProbe
+	subtitles     []subtitleTrack // sidecar .srt/.ass/... next to the movie (single-file mode)
 	cacheRoot     string
 }
 
@@ -91,7 +93,10 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
 		story:         newStoryboard(mediaPath, mediaDurationMs(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
 		probe:         probe,
-		cacheRoot:     cacheRoot,
+		subtitles: findSidecarSubtitles(mediaPath, func(name string) string {
+			return "/subtitle?name=" + url.QueryEscape(name)
+		}),
+		cacheRoot: cacheRoot,
 	}, nil
 }
 
@@ -124,6 +129,10 @@ func (a *app) logMetadata(ffprobeFound, ffmpegFound bool) {
 		a.probe.isHDR, a.probe.hdr10plus, a.probe.dvProfile)
 	fmt.Fprintf(&b, "thumbnails: available=%v\n", a.thumbs.available())
 	fmt.Fprintf(&b, "storyboard: enabled=%v interval=%dms\n", a.story.enabled(), a.story.intervalMs)
+	fmt.Fprintf(&b, "subtitles:  %d sidecar\n", len(a.subtitles))
+	for _, s := range a.subtitles {
+		fmt.Fprintf(&b, "  %s [%s] %s\n", s.Label, s.Mime, s.URL)
+	}
 	fmt.Fprintf(&b, "chapters:   %d\n", len(a.chapters))
 	for i, c := range a.chapters {
 		fmt.Fprintf(&b, "  [%02d] %-9s %s\n", i+1, formatDuration(c.StartMs), c.Name)
@@ -236,6 +245,7 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/stream", a.handleStream)
 	mux.HandleFunc("/client.apk", a.handleAPK)
 	mux.HandleFunc("/log", a.handleClientLog)
+	mux.HandleFunc("/subtitle", a.handleSubtitle) // sidecar .srt/.ass/... (both modes)
 	if a.folderMode {
 		mux.HandleFunc("/list", a.handleList)
 	} else {
@@ -352,6 +362,7 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"thumbnails": a.thumbs.available(),
 		"storyboard": a.story.enabled(),
 		"video":      a.videoInfo(a.probe),
+		"subtitles":  subsOrEmpty(a.subtitles),
 	})
 }
 
@@ -394,12 +405,13 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		probe = mediaProbe{dvProfile: -1}
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":     1,
-		"mode":  "folder",
-		"file":  filepath.Base(full),
-		"size":  fi.Size(),
-		"mime":  mimeForPath(full),
-		"video": a.videoInfo(probe),
+		"v":         1,
+		"mode":      "folder",
+		"file":      filepath.Base(full),
+		"size":      fi.Size(),
+		"mime":      mimeForPath(full),
+		"video":     a.videoInfo(probe),
+		"subtitles": subsOrEmpty(folderSubtitlesFor(full, rel)),
 	})
 }
 

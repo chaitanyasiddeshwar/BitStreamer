@@ -18,6 +18,9 @@ class ServerApi(private val baseUrl: String) {
     /** One entry in a folder listing (folder mode). */
     data class FolderEntry(val name: String, val isDir: Boolean, val sizeBytes: Long, val mime: String)
 
+    /** A sidecar subtitle file served alongside the movie (e.g. movie1.en.srt). */
+    data class SubtitleTrack(val url: String, val label: String, val lang: String, val mime: String)
+
     /** Server metadata relevant to the player. */
     data class Info(
         val mode: String, // "file" or "folder"
@@ -35,6 +38,8 @@ class ServerApi(private val baseUrl: String) {
         val videoTransfer: String,
         val videoColorSpace: String,
         val dvProfile: Int,
+        // On-disk sidecar subtitle files (movie1.srt etc.) the server offers.
+        val subtitles: List<SubtitleTrack>,
     )
 
     /** Scrubbing-preview (storyboard) layout — see docs/THUMBNAILS.md. */
@@ -64,6 +69,18 @@ class ServerApi(private val baseUrl: String) {
                     val o = arr.optJSONObject(i) ?: return@mapNotNull null
                     Chapter(o.optLong("startMs", 0), o.optString("name", ""))
                 }
+            val subsArr = json.optJSONArray("subtitles")
+            val subtitles = if (subsArr == null) emptyList() else
+                (0 until subsArr.length()).mapNotNull { i ->
+                    val o = subsArr.optJSONObject(i) ?: return@mapNotNull null
+                    val u = o.optString("url", "")
+                    if (u.isEmpty()) null else SubtitleTrack(
+                        url = u,
+                        label = o.optString("label", "Subtitle"),
+                        lang = o.optString("lang", ""),
+                        mime = o.optString("mime", ""),
+                    )
+                }
             val video = json.optJSONObject("video")
             Info(
                 mode = json.optString("mode", "file"),
@@ -79,6 +96,7 @@ class ServerApi(private val baseUrl: String) {
                 videoTransfer = video?.optString("transfer", "") ?: "",
                 videoColorSpace = video?.optString("colorSpace", "") ?: "",
                 dvProfile = video?.optInt("dvProfile", -1) ?: -1,
+                subtitles = subtitles,
             )
         } catch (_: Exception) {
             null

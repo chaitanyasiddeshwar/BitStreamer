@@ -87,6 +87,9 @@ class PlayerActivity : Activity() {
     private var playlistInfoPaths: ArrayList<String>? = null
     private var playlistIndex = 0
 
+    // Sidecar subtitle files the server found next to the movie (movie1.srt etc.).
+    private var externalSubs: List<ServerApi.SubtitleTrack> = emptyList()
+
     // Authoritative colour info from the server's ffprobe.
     private var srcHdr = false
     private var srcHdr10Plus = false
@@ -252,6 +255,7 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
+                    externalSubs = info?.subtitles ?: emptyList()
                     initializePlayer(url, resumeMs)
                 }
             }
@@ -410,12 +414,22 @@ class PlayerActivity : Activity() {
             }
         })
 
+        // Sidecar subtitle files (movie1.srt etc.) become extra selectable text
+        // tracks. ExoPlayer merges them via SingleSampleMediaSource, so they keep
+        // their real MIME (SRT/ASS/...) and show up in the subtitle menu.
+        val subConfigs = externalSubs.map { s ->
+            MediaItem.SubtitleConfiguration.Builder(Uri.parse(baseUrl + s.url))
+                .setMimeType(s.mime)
+                .setLabel(s.label)
+                .apply { if (s.lang.isNotEmpty()) setLanguage(s.lang) }
+                .build()
+        }
         // Images need an explicit duration to render; give a long one so they
         // stay until the user navigates (folder mode).
         val mediaItem = if (isImage(currentTitle)) {
             MediaItem.Builder().setUri(url).setImageDurationMs(IMAGE_DURATION_MS).build()
         } else {
-            MediaItem.fromUri(url)
+            MediaItem.Builder().setUri(url).setSubtitleConfigurations(subConfigs).build()
         }
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()

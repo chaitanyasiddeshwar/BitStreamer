@@ -95,6 +95,12 @@ threaten the bitstream-audio guarantee (see AUDIO_PASSTHROUGH.md §4 before touc
    Bitmap subtitles (PGS/VOBSUB) are images and can't be restyled; embedded ASS/SSA styling
    is preserved (`setApplyEmbeddedStyles(true)`). For fully arbitrary rendering you'd replace
    `SubtitleView` — out of scope; the `CaptionStyleCompat` knobs suffice.
+   - **Sidecar subtitle files** *(done)*: the server scans for on-disk subtitles next to the
+     movie sharing its base name (`movie1.srt`, `movie1.en.srt`, `movie1.fr.forced.srt`;
+     `.srt/.vtt/.ass/.ssa/.ttml/.dfxp/.sup`), derives a label + language from the filename tag,
+     serves them at `/subtitle`, and lists them in `/info` as `subtitles`. The client adds each
+     as a `MediaItem.SubtitleConfiguration` (merged via `SingleSampleMediaSource`), so they
+     appear in the subtitle menu with their real format tag alongside the embedded tracks.
 5. **Playback-position UX extras**: `setSeekParameters(SeekParameters.CLOSEST_SYNC)`
    for snappier seeks on big HEVC files; custom `LoadControl` to size buffers for
    high-bitrate remuxes over Wi-Fi (default is tuned for adaptive streaming).
