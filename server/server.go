@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,23 +87,49 @@ func executableDir() string {
 	return "."
 }
 
-// mimeForPath maps by extension explicitly: OS mime tables often lack .mkv,
-// and the client relies on a sensible Content-Type.
+// extToMime lists every file type the Fire TV client (ExoPlayer) can read, mapped
+// to its Content-Type. These mirror ExoPlayer's default extractors (Mp4, Matroska,
+// Ts, Ps, Flv, Avi, Ogg, Mp3, Aac, Ac3, Ac4, Flac, Wav, Amr, and the image
+// extractors). NOTE: .m2ts/.mts are TS but use 192-byte packets ExoPlayer can't
+// parse, so they are deliberately absent (handled with a remux advisory instead).
+var extToMime = map[string]string{
+	// video containers
+	".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+	".mkv": "video/x-matroska", ".webm": "video/webm", ".ts": "video/mp2t",
+	".flv": "video/x-flv", ".avi": "video/x-msvideo", ".ogv": "video/ogg",
+	".mpg": "video/mpeg", ".mpeg": "video/mpeg", ".ps": "video/mpeg", ".vob": "video/mpeg",
+	// audio
+	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".adts": "audio/aac",
+	".ac3": "audio/ac3", ".eac3": "audio/eac3", ".ec3": "audio/eac3", ".ac4": "audio/ac4",
+	".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+	".opus": "audio/opus", ".amr": "audio/amr", ".mka": "audio/x-matroska",
+	// images
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+	".bmp": "image/bmp", ".heic": "image/heif", ".heif": "image/heif", ".avif": "image/avif",
+}
+
+// mimeForPath returns the Content-Type for a supported file, else octet-stream.
 func mimeForPath(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mp4", ".m4v":
-		return "video/mp4"
-	case ".mkv":
-		return "video/x-matroska"
-	case ".mov":
-		return "video/quicktime"
-	case ".webm":
-		return "video/webm"
-	case ".ts", ".m2ts", ".mts":
-		return "video/mp2t"
-	default:
-		return "application/octet-stream"
+	if m, ok := extToMime[strings.ToLower(filepath.Ext(path))]; ok {
+		return m
 	}
+	return "application/octet-stream"
+}
+
+// isPlayable reports whether the client can play this file type.
+func isPlayable(path string) bool {
+	_, ok := extToMime[strings.ToLower(filepath.Ext(path))]
+	return ok
+}
+
+// supportedExtensions returns all playable extensions, sorted, for error messages.
+func supportedExtensions() []string {
+	exts := make([]string, 0, len(extToMime))
+	for e := range extToMime {
+		exts = append(exts, e)
+	}
+	sort.Strings(exts)
+	return exts
 }
 
 // remuxMkvPath returns the media path with its extension changed to .mkv.

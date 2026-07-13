@@ -10,11 +10,22 @@ audio bitstreamed over HDMI to your TV or AV receiver.
 
 ## Supported files
 
-MKV and MP4 are the sweet spot; plain `.ts`, `.mov`, and `.webm` work too. Blu-ray
-transport streams (`.m2ts`/`.mts`) can't be played by the Fire TV client (ExoPlayer can't
-parse their 192-byte packets) — the server prints a one-line lossless `ffmpeg` remux-to-MKV
-command when you load one. Dolby Vision Profile 7 **FEL** files play audio only (black video),
-also with a printed fix — see [docs/HDR_DOLBY_VISION.md](docs/HDR_DOLBY_VISION.md).
+The server only serves file types the Fire TV client (ExoPlayer) can actually read, and
+**refuses anything else with a clear message listing what's supported**. MKV and MP4 are the
+sweet spot. Supported extensions:
+
+- **Video:** `.mkv` `.mp4` `.m4v` `.mov` `.webm` `.ts` `.flv` `.avi` `.mpg` `.mpeg` `.ps` `.vob` `.ogv`
+- **Audio:** `.mp3` `.m4a` `.aac` `.ac3` `.eac3` `.ac4` `.flac` `.wav` `.ogg` `.opus` `.amr` `.mka`
+- **Image:** `.jpg` `.png` `.webp` `.bmp` `.heic` `.heif` `.avif`
+
+Two cases get a specific printed fix instead:
+- **`.m2ts`/`.mts`** (Blu-ray transport streams) — ExoPlayer can't parse their 192-byte
+  packets; the server prints a lossless `ffmpeg` remux-to-MKV command and exits.
+- **Dolby Vision Profile 7 FEL** — plays audio only (black video); the server prints an
+  `ffmpeg` strip-to-HDR10 command. See [docs/HDR_DOLBY_VISION.md](docs/HDR_DOLBY_VISION.md).
+
+(Playing still depends on the codec inside being one the Fire TV can decode — e.g. MPEG-2 in
+`.vob` may not; the container is what's validated here.)
 
 ## Building
 

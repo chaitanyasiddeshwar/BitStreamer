@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -69,7 +70,22 @@ func main() {
 	if *interval < 1 {
 		*interval = 1
 	}
-	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
+
+	// Reject file types the Fire TV client can't play, with clear guidance.
+	mediaPath := flag.Arg(0)
+	ext := strings.ToLower(filepath.Ext(mediaPath))
+	if ext == ".m2ts" || ext == ".mts" {
+		fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
+		os.Exit(1)
+	}
+	if !isPlayable(mediaPath) {
+		fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
+		fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
+		fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
+		os.Exit(1)
+	}
+
+	app, err := newApp(mediaPath, *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -106,10 +122,7 @@ func main() {
 		}
 	}
 	if app.probe.dvProfile == 7 {
-		fmt.Print(dolbyVisionAdvisory(flag.Arg(0)))
-	}
-	if adv := containerAdvisory(flag.Arg(0)); adv != "" {
-		fmt.Print(adv)
+		fmt.Print(dolbyVisionAdvisory(mediaPath))
 	}
 	if app.thumbs.available() || app.story.enabled() {
 		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
