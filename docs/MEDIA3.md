@@ -86,8 +86,11 @@ threaten the bitstream-audio guarantee (see AUDIO_PASSTHROUGH.md §4 before touc
      height from the video vs. view aspect ratio and raise the subtitle baseline above it,
      keeping a constant in-picture margin — how Netflix/Prime place them.
    - **Format tag in the menu**: the subtitle picker appends the track's format
-     (`SRT`/`ASS`/`PGS`/`VOBSUB`/`VTT`/`TTML`/`DVB`/`CEA-608`/`CEA-708`) after the name,
-     mapped from `Format.sampleMimeType` (`subtitleTypeLabel`).
+     (`SRT`/`ASS`/`PGS`/`VOBSUB`/`VTT`/`TTML`/`DVB`/`CEA-608`/`CEA-708`) after the name.
+     Media3 1.x parses text subtitles *during extraction*, so a track's
+     `sampleMimeType` is the generic `application/x-media3-cues` wrapper and the real
+     type lives in `Format.codecs` — `effectiveSubtitleMime()` reads `codecs` for
+     transcoded cues and falls back to `sampleMimeType` for bitmap subs (PGS/VOBSUB).
 
    Bitmap subtitles (PGS/VOBSUB) are images and can't be restyled; embedded ASS/SSA styling
    is preserved (`setApplyEmbeddedStyles(true)`). For fully arbitrary rendering you'd replace

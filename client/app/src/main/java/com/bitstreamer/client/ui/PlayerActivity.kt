@@ -551,7 +551,7 @@ class PlayerActivity : Activity() {
                 val name = nameProvider.getTrackName(format)
                 // For subtitles, tag the format (SRT/ASS/PGS/...) after the name.
                 val label = if (trackType == C.TRACK_TYPE_TEXT) {
-                    "$name  [${subtitleTypeLabel(format.sampleMimeType)}]"
+                    "$name  [${subtitleTypeLabel(effectiveSubtitleMime(format))}]"
                 } else {
                     name
                 }
@@ -580,6 +580,20 @@ class PlayerActivity : Activity() {
         trackDialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
         trackDialog?.show()
     }
+
+    /**
+     * The real subtitle format MIME. Media3 1.x parses text subtitles during
+     * extraction, so the track's sampleMimeType becomes the generic
+     * `application/x-media3-cues` wrapper and the original type (SRT/ASS/...) is
+     * preserved in `codecs`. Fall back to sampleMimeType for anything not
+     * transcoded (e.g. bitmap PGS/VOBSUB).
+     */
+    private fun effectiveSubtitleMime(format: Format): String? =
+        if (format.sampleMimeType == MimeTypes.APPLICATION_MEDIA3_CUES && format.codecs != null) {
+            format.codecs
+        } else {
+            format.sampleMimeType
+        }
 
     /** Short, friendly label for a subtitle track's format, shown in the menu. */
     private fun subtitleTypeLabel(mimeType: String?): String = when (mimeType) {
