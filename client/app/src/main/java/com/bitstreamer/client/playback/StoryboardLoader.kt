@@ -1,12 +1,14 @@
 package com.bitstreamer.client.playback
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ExecutorService
@@ -14,15 +16,19 @@ import java.util.concurrent.Executors
 
 /**
  * Provides scrubbing-preview tiles: maps a playback time to a tile in the
- * server's storyboard sprite sheets, fetching and caching whole sheets and
- * cropping the requested tile. See docs/THUMBNAILS.md. Best-effort — a failure
- * yields null, never an error.
+ * server's storyboard sprite sheets. Caches each sheet's *encoded JPEG bytes*
+ * (not the decoded bitmap) and decodes only the requested tile region with a
+ * BitmapRegionDecoder — so memory stays a few MB regardless of how large/
+ * high-resolution the sheets are. See docs/THUMBNAILS.md. Best-effort — a
+ * failure yields null, never an error.
  */
 class StoryboardLoader(
     private val api: ServerApi,
     private val sb: ServerApi.Storyboard,
 ) {
-    private val sheetCache = LruCache<Int, Bitmap>(4)
+    // Cache encoded sheet bytes, not decoded bitmaps: ~1-2 MB per sheet vs. tens
+    // of MB decoded, so higher-resolution sheets don't blow up the heap.
+    private val sheetBytes = LruCache<Int, ByteArray>(CACHED_SHEETS)
     private val executor: ExecutorService = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile
@@ -36,33 +42,40 @@ class StoryboardLoader(
         val row = within / sb.cols
         val col = within % sb.cols
 
-        sheetCache.get(sheet)?.let {
-            onTile(crop(it, row, col))
+        sheetBytes.get(sheet)?.let {
+            onTile(cropTile(it, row, col))
             return
         }
         executor.execute {
             if (released) return@execute
-            val sheetBmp = fetchSheet(sheet)
-            if (sheetBmp != null) sheetCache.put(sheet, sheetBmp)
-            val tile = sheetBmp?.let { crop(it, row, col) }
+            val bytes = fetchSheetBytes(sheet)
+            if (bytes != null) sheetBytes.put(sheet, bytes)
+            val tile = bytes?.let { cropTile(it, row, col) }
             mainHandler.post { if (!released) onTile(tile) }
         }
     }
 
-    private fun crop(sheet: Bitmap, row: Int, col: Int): Bitmap? {
+    /** Decodes just one tile's region from the sheet's encoded JPEG bytes. */
+    private fun cropTile(bytes: ByteArray, row: Int, col: Int): Bitmap? {
         val x = col * sb.tileWidth
         val y = row * sb.tileHeight
-        if (x < 0 || y < 0 || x + sb.tileWidth > sheet.width || y + sb.tileHeight > sheet.height) {
-            return null // last sheet may be partially filled
-        }
         return try {
-            Bitmap.createBitmap(sheet, x, y, sb.tileWidth, sb.tileHeight)
+            @Suppress("DEPRECATION") // newInstance(byte[],...) is fine on minSdk 25
+            val decoder = BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false) ?: return null
+            try {
+                if (x + sb.tileWidth > decoder.width || y + sb.tileHeight > decoder.height) {
+                    return null // last sheet may be partially filled
+                }
+                decoder.decodeRegion(Rect(x, y, x + sb.tileWidth, y + sb.tileHeight), null)
+            } finally {
+                decoder.recycle()
+            }
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun fetchSheet(sheet: Int): Bitmap? {
+    private fun fetchSheetBytes(sheet: Int): ByteArray? {
         return try {
             val conn = URL(api.storyboardSheetUrl(sheet)).openConnection() as HttpURLConnection
             conn.connectTimeout = 3000
@@ -71,7 +84,11 @@ class StoryboardLoader(
                 conn.disconnect()
                 return null
             }
-            conn.inputStream.use { BitmapFactory.decodeStream(it) }
+            conn.inputStream.use { input ->
+                val buf = ByteArrayOutputStream()
+                input.copyTo(buf)
+                buf.toByteArray()
+            }
         } catch (e: Exception) {
             RemoteLog.d(TAG, "storyboard sheet $sheet fetch failed: ${e.message}")
             null
@@ -85,5 +102,6 @@ class StoryboardLoader(
 
     companion object {
         private const val TAG = "Storyboard"
+        private const val CACHED_SHEETS = 4
     }
 }

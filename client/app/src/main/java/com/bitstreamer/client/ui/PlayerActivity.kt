@@ -955,12 +955,12 @@ class PlayerActivity : Activity() {
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         // Subtitle sizing/placement (fractions of the player-view height). Text
         // size is a touch smaller than Media3's 0.0533 default. Bottom padding is
-        // the margin from the screen bottom for un-letterboxed video; for
-        // letterboxed video, subtitles sit just above the bottom bar with only
-        // LETTERBOX_MARGIN of the picture below them (see updateSubtitlePosition).
+        // ~10% up from the screen bottom for un-letterboxed video; for letterboxed
+        // video, subtitles sit at least just above the bottom bar so they never
+        // straddle the picture edge (see updateSubtitlePosition).
         private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.048f
-        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.045f
-        private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.01f
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.10f
+        private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.02f
         private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an
         // app switch). ~1-3s backoff, up to ~40s total before giving up.

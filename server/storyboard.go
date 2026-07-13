@@ -16,7 +16,11 @@ import (
 const (
 	sbCols  = 10
 	sbRows  = 10
-	sbTileW = 240 // tile width in px; height derives from the video aspect
+	sbTileW = 480 // tile width in px; height derives from the video aspect.
+	// 480 matches the client's on-screen preview size (240dp @ xhdpi = 480px) for
+	// a 1:1, crisp preview. The client decodes only the requested tile region from
+	// each sheet (BitmapRegionDecoder), so the larger sheets don't cost RAM.
+	sbJPEGQuality = 90 // sprite-sheet JPEG quality (higher = crisper previews)
 )
 
 // storyboard produces a dense grid of frame thumbnails ("trickplay") for
@@ -189,7 +193,7 @@ func (s *storyboard) packSheet(sheet int, tileDir string, tileW, tileH int) erro
 		return err
 	}
 	defer out.Close()
-	return jpeg.Encode(out, canvas, &jpeg.Options{Quality: 80})
+	return jpeg.Encode(out, canvas, &jpeg.Options{Quality: sbJPEGQuality})
 }
 
 func (s *storyboard) sheetPath(n int) (string, bool) {

@@ -45,7 +45,7 @@ startup via ffmpeg into `cache/storyboard/` next to the executable (wiped at sta
 Ctrl+C/SIGTERM — per-session), duration comes
 from ffprobe (`mediaDurationMs` in `duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
 manifest and sheets. The interval is the **`--interval <secs>` flag (default 30)**. The
-client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, crops the
+client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, decodes the
 tile for the scrub position, and shows it; it also sets the seek-bar D-pad step to the same
 interval so each left/right press lands on the next preview frame (and fixes the old
 "jumps several minutes" behavior). If the server is still generating when a movie opens, the
@@ -87,9 +87,13 @@ ffmpeg -i <file> -vf "fps=1/<T>,scale=240:-2,tile=10x10" -q:v 5 <cache>/sb_%03d.
 - On player start, if `/info` says `storyboard:true`, fetch `/storyboard.json`.
 - Attach a scrub listener to the `DefaultTimeBar` (`TimeBar.OnScrubListener.onScrubMove`
   gives the scrubbed position). From position → tile index (`pos/intervalMs`) →
-  sheet number + row/col → crop that tile out of the (cached) sheet bitmap → show it in an
+  sheet number + row/col → decode that tile's region out of the (cached) sheet → show it in an
   overlay `ImageView` positioned above the scrubber thumb.
-- Cache sheet bitmaps in an `LruCache`; only a couple are ever needed at once.
+- Cache each sheet's **encoded JPEG bytes** (not the decoded bitmap) in an `LruCache`, and
+  decode only the requested tile with a `BitmapRegionDecoder`. Memory stays a few MB no
+  matter how large the sheets are — which is what lets the tiles be full-resolution (480px
+  wide, 1:1 with the on-screen preview at 240dp/xhdpi) without OOMing the Fire TV Stick.
+  A whole-sheet decode would be ~52 MB per 4800×2700 sheet.
 
 ### Generation: fast keyframe seeks (not a full decode)
 
