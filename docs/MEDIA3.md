@@ -41,6 +41,13 @@ Media3 does the heavy lifting.
 - Chapter selector (name + timestamp per row). On-device thumbnails via
   `MediaMetadataRetriever` were tried but return black/null on Fire TV (single HW decoder
   busy with playback) — moving to server-side ffmpeg; see [THUMBNAILS.md](THUMBNAILS.md)
+- **Dolby Vision → HDR10 fallback**: a custom `MediaCodecSelector` in `PlayerFactory`
+  returns no decoder for the `video/dolby-vision` mime, so Media3 falls back to its own
+  HEVC/AVC decoder and plays the HDR10-compatible base layer. This works around the Fire TV
+  DV black-screen bug (audio only) on Profile 7 dual-layer and DV+HDR10+ MKVs
+  ([androidx/media #957](https://github.com/androidx/media/issues/957),
+  [#1895](https://github.com/androidx/media/issues/1895)). Toggle with
+  `DISABLE_DOLBY_VISION`.
 - Deep diagnostics via `AnalyticsListener` (`onAudioTrackInitialized`, decoder events,
   sink errors) feeding `RemoteLog`
 

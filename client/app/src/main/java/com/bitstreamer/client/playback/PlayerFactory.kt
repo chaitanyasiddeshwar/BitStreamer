@@ -5,12 +5,15 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 
 /**
  * The single place ExoPlayer is configured. The choices here exist to keep
@@ -36,6 +39,7 @@ object PlayerFactory {
         }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
+            .setMediaCodecSelector(videoCodecSelector())
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -48,6 +52,27 @@ object PlayerFactory {
             .setSeekForwardIncrementMs(30_000)
             .build()
     }
+
+    /**
+     * Decoder selector that avoids the Fire TV Dolby Vision decoder, which
+     * black-screens (audio only) on Profile 7 dual-layer and DV+HDR10+ MKVs —
+     * a known Fire TV limitation (androidx/media #957, #1895). Returning no
+     * decoder for the DV mime makes Media3 fall back to its own alternative
+     * HEVC/AVC decoder, so the HDR10-compatible base layer is decoded instead
+     * (DV metadata is dropped; picture shows as HDR10). Flip DISABLE_DOLBY_VISION
+     * to false to let the platform DV decoder handle it.
+     */
+    @OptIn(UnstableApi::class)
+    private fun videoCodecSelector(): MediaCodecSelector =
+        MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
+            if (DISABLE_DOLBY_VISION && mimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+                emptyList()
+            } else {
+                MediaCodecUtil.getDecoderInfos(mimeType, requiresSecure, requiresTunneling)
+            }
+        }
+
+    private const val DISABLE_DOLBY_VISION = true
 
     /**
      * Wrapper for the UI: advertises no speed/pitch command, so PlayerView's
