@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,17 +102,25 @@ func (t *thumbnailer) warm() {
 		return
 	}
 	var wg sync.WaitGroup
+	var ok int64
 	for i := range t.chapters {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			if _, err := t.get(idx); err != nil {
 				log.Printf("thumbnail %d: %v", idx, err)
+			} else {
+				atomic.AddInt64(&ok, 1)
 			}
 		}(i)
 	}
 	wg.Wait()
-	log.Printf("chapter thumbnails ready (%d)", len(t.chapters))
+	if ok == 0 {
+		log.Printf("chapter thumbnails FAILED: 0 of %d generated (see the ffmpeg log). "+
+			"The chapter menu will show names only.", len(t.chapters))
+	} else {
+		log.Printf("chapter thumbnails ready (%d/%d)", ok, len(t.chapters))
+	}
 }
 
 func (t *thumbnailer) lockFor(index int) *sync.Mutex {

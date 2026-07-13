@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 )
@@ -99,6 +100,7 @@ func main() {
 		}
 	}()
 
+	fmt.Printf("BitStreamer (build %s)\n", buildStamp())
 	if app.folderMode {
 		fmt.Printf("Serving folder %q (browse it from the client)\n\n", app.rootDir)
 	} else {
@@ -159,6 +161,10 @@ func main() {
 		if app.story.enabled() {
 			fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
 			go app.story.generate()
+		} else if app.story.ffmpegPath != "" {
+			// ffmpeg is present but the storyboard is still off: the only other
+			// requirement is a duration, which comes from ffprobe.
+			fmt.Println("Scrubbing previews: DISABLED — couldn't read the media duration (needs ffprobe).")
 		}
 	}
 
@@ -182,6 +188,41 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// buildStamp returns a short identifier for the running binary — the git commit
+// and build time stamped in by `go build` inside the repo. Lets you tell at a
+// glance whether you're running a freshly built exe or a stale one.
+func buildStamp() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	var rev, ts string
+	modified := false
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			ts = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if rev == "" {
+		return "dev"
+	}
+	if len(rev) > 12 {
+		rev = rev[:12]
+	}
+	if modified {
+		rev += "+dirty"
+	}
+	if ts != "" {
+		return rev + " " + ts
+	}
+	return rev
 }
 
 func formatSize(n int64) string {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 )
 
 // Sprite-sheet grid: cols*rows tiles per sheet.
@@ -87,13 +88,16 @@ func (s *storyboard) generate() {
 
 	// 1. Extract each interval's frame with a fast keyframe seek.
 	var wg sync.WaitGroup
+	var failed int64
 	for i := 0; i < tileCount; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			s.sem <- struct{}{}
 			defer func() { <-s.sem }()
-			s.extractTile(idx, tileDir)
+			if err := s.extractTile(idx, tileDir); err != nil {
+				atomic.AddInt64(&failed, 1)
+			}
 		}(i)
 	}
 	wg.Wait()
@@ -101,8 +105,13 @@ func (s *storyboard) generate() {
 	// 2. Measure tile dimensions from the first frame produced.
 	tileW, tileH := s.firstTileSize(tileDir, tileCount)
 	if tileW == 0 {
-		log.Printf("storyboard: no frames produced")
+		log.Printf("storyboard FAILED: could not extract any of the %d preview frames from %q "+
+			"(every ffmpeg seek failed — see the ffmpeg log for the reason). Scrubbing previews are OFF.",
+			tileCount, filepath.Base(s.mediaPath))
 		return
+	}
+	if failed > 0 {
+		log.Printf("storyboard: %d of %d preview frames failed to extract (see the ffmpeg log)", failed, tileCount)
 	}
 
 	// 3. Pack into sprite sheets, then drop the individual tiles.
@@ -128,12 +137,14 @@ func (s *storyboard) generate() {
 // extractTile grabs the frame near tile idx's timestamp. Fast: -ss before -i is
 // an input (keyframe) seek, and -frames:v 1 outputs a single frame. A failure
 // (e.g. seeking past the end) just leaves a gap — that sheet cell stays black.
-func (s *storyboard) extractTile(idx int, tileDir string) {
+func (s *storyboard) extractTile(idx int, tileDir string) error {
 	seekSec := float64(int64(idx)*s.intervalMs) / 1000.0
 	out := filepath.Join(tileDir, fmt.Sprintf("t_%05d.jpg", idx))
 	if err := extractFrame(s.ffmpegPath, s.mediaPath, seekSec, sbTileW, 5, s.hdr, out); err != nil {
 		os.Remove(out)
+		return err
 	}
+	return nil
 }
 
 // firstTileSize returns the pixel size of the first extracted tile (all tiles
