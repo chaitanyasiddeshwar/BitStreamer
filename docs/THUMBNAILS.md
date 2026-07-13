@@ -8,13 +8,22 @@ Fire TV; this documents why, and the server-side ffmpeg approach that replaced i
 - Server (`thumbnails.go`): detects `ffmpeg` next to the exe or on `PATH`; if present,
   `GET /chapter-thumb?index=N` returns a JPEG generated on first request (`ffmpeg -ss
   <start+5s> -i file -frames:v 1 -vf scale=320:-2 -f mjpeg`), cached to
-  `%TEMP%/bitstreamer-thumbs` keyed by file+mtime+index, with concurrency capped at 3.
+  `cache/thumbs/` next to the executable, keyed by file+mtime+hdr+index, concurrency capped at 3.
   `/info` reports `"thumbnails": true` only when ffmpeg is available.
 - Client: `ChapterThumbnailLoader` fetches `/chapter-thumb?index=N` over HTTP and caches
   the bitmaps. When `/info` says `thumbnails:false`, the chapter selector hides the image
   and shows a compact name + timestamp list.
 - ffmpeg is a **user-supplied sidecar** (not bundled): drop `ffmpeg.exe` next to
   `bitstreamer.exe` to enable thumbnails; without it, everything else works unchanged.
+- **HDR tonemapping**: HDR sources are tonemapped BT.2020→BT.709 with ffmpeg's
+  `zscale`/`tonemap` filters (`ffmpeg.go`) so thumbnails aren't washed out — for both
+  chapter thumbnails and storyboard tiles. Detection is via **ffprobe** (`probe.go`),
+  which reads the real stream's colour transfer (PQ/HLG) and the Dolby Vision profile;
+  it falls back to the MKV container tags (`hdr.go`) if ffprobe isn't present. Works for
+  HDR10, HDR10+, and Dolby Vision profiles with a PQ/HLG base (7/8.x); DV **profile 5**
+  can't be colour-accurate without DV RPU processing (an ffmpeg/libplacebo limitation).
+  If the ffmpeg build lacks `zscale` (libzimg), it falls back to plain extraction (washed
+  out, but present) and logs once. The detected colour info is printed at startup.
 - **Eager generation**: on startup the server pre-generates all chapter thumbnails in the
   background (`thumbnailer.warm()`, concurrency-capped), so the chapter menu is instant the
   first time it's opened instead of triggering ffmpeg on demand. On-demand generation
@@ -25,14 +34,22 @@ The rest of this doc records the original investigation and rationale.
 
 ---
 
-## Planned: scrubbing preview thumbnails (YouTube/Netflix-style "storyboard")
+## Scrubbing preview thumbnails (YouTube/Netflix-style "storyboard")
 
-Status: **planned, not implemented.** Feasible; this is the design.
+Status: **implemented.** As you drag the seek bar, a small preview of the frame at that
+position follows the thumb — a "trickplay"/"storyboard" preview. Unlike chapter thumbnails
+(one per chapter), this needs a **dense, regular grid** of frames across the whole movie.
 
-Goal: while the user drags the seek bar, show a small live preview of the frame at that
-position (a "trickplay"/"storyboard" preview), like YouTube/Netflix. Unlike chapter
-thumbnails (one per chapter), this needs a **dense, regular grid** of frames across the
-whole movie.
+What shipped (matching the design below): server `storyboard.go` generates sprite sheets at
+startup via ffmpeg into `cache/storyboard/` next to the executable (wiped at start and on
+Ctrl+C/SIGTERM — per-session), duration comes
+from `go-mkvparse` (`duration.go`), and `/storyboard.json` + `/storyboard?sheet=N` serve the
+manifest and sheets. The interval is the **`--interval <secs>` flag (default 30)**. The
+client (`StoryboardLoader` + the scrub overlay in `PlayerActivity`) fetches sheets, crops the
+tile for the scrub position, and shows it; it also sets the seek-bar D-pad step to the same
+interval so each left/right press lands on the next preview frame (and fixes the old
+"jumps several minutes" behavior). If the server is still generating when a movie opens, the
+client polls `/storyboard.json` and enables previews once ready.
 
 ### How mature players do it (and we should too): sprite sheets
 
@@ -73,16 +90,32 @@ ffmpeg -i <file> -vf "fps=1/<T>,scale=240:-2,tile=10x10" -q:v 5 <cache>/sb_%03d.
   overlay `ImageView` positioned above the scrubber thumb.
 - Cache sheet bitmaps in an `LruCache`; only a couple are ever needed at once.
 
-### Cost & the one real risk
+### Generation: fast keyframe seeks (not a full decode)
 
-The `fps` filter makes ffmpeg **decode the whole video** to sample frames. For a 2-hour 4K
-HDR HEVC file that can take **several minutes** of CPU at startup (background, so playback
-isn't blocked — the preview simply isn't available until it finishes). Mitigations:
-- Coarser interval (T=10s → ~720 tiles for a 2h film; T=5s doubles cost and smoothness).
-- `scale` small (decode cost is dominated by decode, not scale, but keeps sheets small).
-- Show a "generating previews…" state; fall back to no-preview scrubbing until ready.
-- Possible future optimization: keyframe-only sampling (`-skip_frame nokey`) is far faster
-  but gives irregular spacing — needs a manifest of actual timestamps, more client work.
+An early version used one `fps` filter pass, which makes ffmpeg **decode the whole video** —
+minutes of CPU for a 2-hour 4K file. The shipped version instead does a **fast keyframe seek
+per interval**: `ffmpeg -ss <i*interval> -i file -frames:v 1` uses the container index to jump
+to the nearest keyframe and decode almost nothing. These run in parallel (capped), then Go
+tiles the frames into sprite sheets (`image/draw`, stdlib). For a 2h film at 30s that's ~240
+targeted seeks — seconds, not minutes — and every tile is effectively a keyframe.
+
+### Why fixed intervals (not keyframe-driven variable spacing)
+
+Considered letting the keyframes themselves set the spacing (extract *every* I-frame at its
+natural position). Rejected — it's worse on every axis that matters here:
+- **Slower to generate**, not faster: grabbing all keyframes needs a full-file pass
+  (`-skip_frame nokey` still demuxes the whole container and decodes every I-frame, often
+  1000s). Targeted seeks at fixed intervals touch far less of the file.
+- **Unpredictable, unbounded count**: keyframe density varies wildly by encode; a fast-cut
+  film could yield thousands of tiles (dozens of sheets), a static one very few.
+- **Complex client**: irregular timestamps break the trivial `tileIndex = time/interval`
+  mapping — you'd need a per-tile timestamp manifest and a nearest-tile binary search.
+- **Marginal UX gain**: for scrubbing, a fixed grid is plenty; nobody needs a preview at
+  every scene cut.
+
+Fixed interval + keyframe seek already gives keyframe-quality frames with fast, bounded,
+simple generation. Want finer granularity? Lower `--interval` (e.g. `--interval 10`) — it
+stays fast because of the seek approach.
 
 ### Effort
 

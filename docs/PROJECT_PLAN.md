@@ -102,7 +102,8 @@ Exit on Ctrl+C. If the file doesn't exist or isn't readable: clear error, exit 1
 | `GET /client.apk` | The APK (`application/vnd.android.package-archive`). Default path: `client.apk` next to the exe; overridable with `--apk`. 404 with a helpful body if missing. |
 | `POST /log` | Client diagnostics channel: appends the plain-text body to `client-logs.txt` next to the exe (`--clientlog` to override), with a timestamp/remote-addr header per batch. The Fire TV client's `RemoteLog` batches its playback logs here so issues can be diagnosed from the PC without adb. |
 | `GET /info` (chapters) | `/info` also carries `"chapters": [{"startMs":N,"name":"…"}]` parsed from the MKV at startup (vendored `go-mkvparse`, default edition, hidden chapters skipped) and `"thumbnails": bool` (true when ffmpeg is available). The client draws seek-bar ticks, a chapter selector, and — when thumbnails are on — a preview per chapter. |
-| `GET /chapter-thumb?index=N` | JPEG thumbnail for chapter N, generated on first request via the ffmpeg sidecar and cached to disk. 404 when ffmpeg is absent or the index is invalid. See [THUMBNAILS.md](THUMBNAILS.md). |
+| `GET /chapter-thumb?index=N` | JPEG thumbnail for chapter N, generated via the ffmpeg sidecar (pre-warmed at startup) and cached to disk. 404 when ffmpeg is absent or the index is invalid. See [THUMBNAILS.md](THUMBNAILS.md). |
+| `GET /storyboard.json` · `GET /storyboard?sheet=N` | Scrubbing-preview manifest + sprite sheets, generated at startup (interval = `--interval` secs, default 30) into a per-session cache cleared on shutdown. Manifest 404s until generation finishes. See [THUMBNAILS.md](THUMBNAILS.md). |
 | `GET/POST /position` | Resume support, keyed by client IP. `POST ?ms=N` stores the playback position (client heartbeats every 5 s and reports on stop; `ms=0` clears — sent when playback finishes). `GET` returns `{"v":1,"file":…,"positionMs":N}`; the client offers "Resume from X / Start from beginning" when N ≥ 10 s. Persisted to `resume.json` next to the exe (`--resumefile`), invalidated automatically when the server is started with a different file. |
 | `GET /` | Minimal HTML status page: file name/size, stream URL, APK URL. Sanity-check target for a browser. |
 
@@ -160,8 +161,9 @@ server/
    `255.255.255.255:46899` **and** the subnet-directed broadcast (computed from
    `WifiManager`/`ConnectivityManager` LinkProperties), 3 probes × 1 s timeout.
    Shows found servers (name + file from `/info`) in a focusable list; also a manual
-   IP entry row (fallback when broadcast is filtered) and a Retry button.
-   One result → auto-navigate after a beat.
+   IP entry row (fallback when broadcast is filtered) and a Retry button. Focusing a
+   server shows its full `/info` metadata as a table (file, size, container, video
+   HDR/DV/colour, chapter count, thumbnail/scrub-preview availability) before playing.
 2. **PlayerActivity**: full-screen Media3 `PlayerView`.
    - `MediaItem.fromUri("http://<ip>:46898/stream")`.
    - Controls (Fire TV remote): play/pause (center + play/pause key), FF/RW keys and
@@ -298,6 +300,12 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
   play/pause, Down → Audio/Subtitles/Chapters icon row (custom `player_controls.xml`)
 - **Chapter thumbnails via ffmpeg sidecar** (`thumbnails.go` + `/chapter-thumb`), after
   on-device extraction proved impossible on Fire TV; see [THUMBNAILS.md](THUMBNAILS.md)
+- **Scrubbing previews** (`storyboard.go` sprite sheets + `/storyboard*`, client scrub
+  overlay), `--interval` secs (default 30), which is also the client seek-bar step
+- **HDR tonemapping** for thumbnails (ffprobe detection in `probe.go`, zscale/tonemap in
+  `ffmpeg.go`) — HDR10/HDR10+/Dolby Vision (PQ base); see [THUMBNAILS.md](THUMBNAILS.md)
+- **"Stats for nerds" overlay** — Menu button / Stats icon toggles a left-side table of
+  codec, resolution, frame rate, HDR/colour, audio passthrough, dropped frames, buffering
 
 ## 9. Future candidates
 

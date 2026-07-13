@@ -49,6 +49,11 @@ object PlayerFactory {
             .build()
     }
 
+    // Note: forcing the HEVC base layer for Dolby Vision (to work around the Fire TV
+    // DV black screen) was tried and removed — it black-screens/timeouts on Profile 7
+    // FEL and breaks Profile 8 DV that otherwise plays fine. Profile 7 FEL simply
+    // isn't playable on Fire TV without transcoding. Native DV decoder is used for all.
+
     /**
      * Wrapper for the UI: advertises no speed/pitch command, so PlayerView's
      * settings menu drops the "Playback speed" row (and any future

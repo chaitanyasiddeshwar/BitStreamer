@@ -25,7 +25,7 @@ func newTestApp(t *testing.T) (*app, []byte) {
 		t.Fatal(err)
 	}
 	a, err := newApp(path, "TestServer", filepath.Join(dir, "client.apk"),
-		filepath.Join(dir, "client-logs.txt"), filepath.Join(dir, "resume.json"), 46898)
+		filepath.Join(dir, "client-logs.txt"), filepath.Join(dir, "resume.json"), 46898, 30000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +223,30 @@ func TestClientLog(t *testing.T) {
 func TestMimeForPath(t *testing.T) {
 	cases := map[string]string{
 		"a.mp4": "video/mp4", "b.MKV": "video/x-matroska", "c.mov": "video/quicktime",
-		"d.webm": "video/webm", "e.avi": "application/octet-stream",
+		"d.webm": "video/webm", "e.avi": "video/x-msvideo", "f.ts": "video/mp2t",
+		"g.flac": "audio/flac", "h.MP3": "audio/mpeg",
+		"i.m2ts": "application/octet-stream", // TS variant not in the playable set
+		"j.iso":  "application/octet-stream", // unsupported
 	}
 	for path, want := range cases {
 		if got := mimeForPath(path); got != want {
 			t.Errorf("mimeForPath(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+func TestIsPlayable(t *testing.T) {
+	for _, p := range []string{"x.mkv", "x.mp4", "x.ts", "x.avi", "x.flac", "x.MKV"} {
+		if !isPlayable(p) {
+			t.Errorf("expected %q playable", p)
+		}
+	}
+	for _, p := range []string{"x.m2ts", "x.mts", "x.iso", "x.rar", "x"} {
+		if isPlayable(p) {
+			t.Errorf("expected %q not playable", p)
+		}
+	}
+	if len(supportedExtensions()) < 20 {
+		t.Errorf("expected a broad supported list, got %d", len(supportedExtensions()))
 	}
 }

@@ -16,7 +16,7 @@ func fixtureThumbnailer(t *testing.T) *thumbnailer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newThumbnailer(path, info.ModTime(), parseChapters(path))
+	return newThumbnailer(path, info.ModTime(), parseChapters(path), parseIsHDR(path), t.TempDir())
 }
 
 func TestThumbnailGeneration(t *testing.T) {
@@ -55,7 +55,7 @@ func TestChapterThumbEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, err := newApp(path, "T", filepath.Join(dir, "c.apk"),
-		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898)
+		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898, 30000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestChapterThumbEndpoint(t *testing.T) {
 
 func TestThumbnailerUnavailableWithoutChapters(t *testing.T) {
 	// A file with no chapters is never thumbnail-able even if ffmpeg exists.
-	th := newThumbnailer("nonexistent.mkv", time.Unix(0, 0), nil)
+	th := newThumbnailer("nonexistent.mkv", time.Unix(0, 0), nil, false, t.TempDir())
 	if th.available() {
 		t.Error("expected unavailable with no chapters")
 	}

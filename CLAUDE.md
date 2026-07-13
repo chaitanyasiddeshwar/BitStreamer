@@ -25,8 +25,12 @@ Key docs:
 - `docs/PROJECT_PLAN.md` — architecture, decisions, protocol spec, milestones, test plan
 - `docs/AUDIO_PASSTHROUGH.md` — how audio bitstreaming works on Fire TV; read before touching
   any audio code in the client
+- `docs/HDR_DOLBY_VISION.md` — what HDR/DV formats play on Fire TV, the Profile 7 FEL black-screen
+  limitation, and the ffmpeg strip-to-HDR10 workaround the server prints
 - `docs/MEDIA3.md` — what Media3 is, which of its features we use, and the vetted menu of
   features we could adopt (with passthrough-hazard warnings)
+- `docs/REMOTE.md` — Fire TV remote buttons/keycodes, what's mappable, and the player's key map
+- `docs/THUMBNAILS.md` — chapter thumbnails + scrubbing storyboard (ffmpeg sidecar, HDR tonemapping)
 
 ## Tech stack (decided — see PROJECT_PLAN.md for rationale)
 

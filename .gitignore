@@ -4,9 +4,12 @@ server/bitstreamer
 server/bitstreamer.exe
 server/bitstreamer-*
 server/dist/
+server/cache/
+cache/
 client.apk
 *.apk
 client-logs.txt
+ffmpeg-logs.txt
 resume.json
 
 # Android / Gradle
@@ -17,6 +20,12 @@ client/local.properties
 client/.idea/
 *.keystore
 *.jks
+
+# Source art (kept locally; the processed assets live under client/app/src/main/res/)
+/icon.jpg
+/icon.png
+/banner.png
+/Gemini_Generated_Image_*.png
 
 # OS noise
 .DS_Store

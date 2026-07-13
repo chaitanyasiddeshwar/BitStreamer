@@ -19,4 +19,7 @@
     <string name="dialog_audio_title">Audio track</string>
     <string name="dialog_subtitles_title">Subtitles</string>
     <string name="dialog_chapters_title">Chapters</string>
+    <string name="track_off">Off</string>
+    <string name="opt_stats">Stats</string>
+    <string name="details_header">Media details</string>
 </resources>

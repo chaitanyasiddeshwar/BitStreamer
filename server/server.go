@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,9 +34,12 @@ type app struct {
 	resume        *resumeStore
 	chapters      []Chapter
 	thumbs        *thumbnailer
+	story         *storyboard
+	probe         mediaProbe
+	cacheRoot     string
 }
 
-func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int) (*app, error) {
+func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
 	info, err := os.Stat(mediaPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open media file: %w", err)
@@ -44,6 +48,17 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
 	}
 	chapters := parseChapters(mediaPath)
+	// Prefer ffprobe (reads the real stream + Dolby Vision profile); fall back
+	// to the MKV container's colour tags if ffprobe isn't available.
+	probe, ok := probeMedia(mediaPath)
+	if !ok {
+		probe = mediaProbe{isHDR: parseIsHDR(mediaPath), dvProfile: -1}
+		probe.summary = fmt.Sprintf("HDR=%v (from MKV container tags; ffprobe unavailable)", probe.isHDR)
+	}
+	hdr := probe.isHDR
+	// Keep the thumbnail/storyboard caches next to the executable (in cache/)
+	// rather than the system temp dir, so cleanup is just deleting that folder.
+	cacheRoot := filepath.Join(executableDir(), "cache")
 	return &app{
 		mediaPath:     mediaPath,
 		mediaName:     filepath.Base(mediaPath),
@@ -56,25 +71,90 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		clientLogPath: clientLogPath,
 		resume:        newResumeStore(resumePath, mediaPath),
 		chapters:      chapters,
-		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters),
+		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
+		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
+		probe:         probe,
+		cacheRoot:     cacheRoot,
 	}, nil
 }
 
-// mimeForPath maps by extension explicitly: OS mime tables often lack .mkv,
-// and the client relies on a sensible Content-Type.
-func mimeForPath(path string) string {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".mp4", ".m4v":
-		return "video/mp4"
-	case ".mkv":
-		return "video/x-matroska"
-	case ".mov":
-		return "video/quicktime"
-	case ".webm":
-		return "video/webm"
-	default:
-		return "application/octet-stream"
+// executableDir returns the directory of the running binary (where cache/,
+// client-logs.txt etc. live), or "." if it can't be determined.
+func executableDir() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe)
 	}
+	return "."
+}
+
+// extToMime lists every file type the Fire TV client (ExoPlayer) can read, mapped
+// to its Content-Type. These mirror ExoPlayer's default extractors (Mp4, Matroska,
+// Ts, Ps, Flv, Avi, Ogg, Mp3, Aac, Ac3, Ac4, Flac, Wav, Amr, and the image
+// extractors). NOTE: .m2ts/.mts are TS but use 192-byte packets ExoPlayer can't
+// parse, so they are deliberately absent (handled with a remux advisory instead).
+var extToMime = map[string]string{
+	// video containers
+	".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+	".mkv": "video/x-matroska", ".webm": "video/webm", ".ts": "video/mp2t",
+	".flv": "video/x-flv", ".avi": "video/x-msvideo", ".ogv": "video/ogg",
+	".mpg": "video/mpeg", ".mpeg": "video/mpeg", ".ps": "video/mpeg", ".vob": "video/mpeg",
+	// audio
+	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".adts": "audio/aac",
+	".ac3": "audio/ac3", ".eac3": "audio/eac3", ".ec3": "audio/eac3", ".ac4": "audio/ac4",
+	".flac": "audio/flac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+	".opus": "audio/opus", ".amr": "audio/amr", ".mka": "audio/x-matroska",
+	// images
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+	".bmp": "image/bmp", ".heic": "image/heif", ".heif": "image/heif", ".avif": "image/avif",
+}
+
+// mimeForPath returns the Content-Type for a supported file, else octet-stream.
+func mimeForPath(path string) string {
+	if m, ok := extToMime[strings.ToLower(filepath.Ext(path))]; ok {
+		return m
+	}
+	return "application/octet-stream"
+}
+
+// isPlayable reports whether the client can play this file type.
+func isPlayable(path string) bool {
+	_, ok := extToMime[strings.ToLower(filepath.Ext(path))]
+	return ok
+}
+
+// supportedExtensions returns all playable extensions, sorted, for error messages.
+func supportedExtensions() []string {
+	exts := make([]string, 0, len(extToMime))
+	for e := range extToMime {
+		exts = append(exts, e)
+	}
+	sort.Strings(exts)
+	return exts
+}
+
+// remuxMkvPath returns the media path with its extension changed to .mkv.
+func remuxMkvPath(mediaPath string) string {
+	ext := filepath.Ext(mediaPath)
+	return strings.TrimSuffix(mediaPath, ext) + ".mkv"
+}
+
+// containerAdvisory returns a console message for containers the Fire TV client
+// can't play, or "" for playable ones. .m2ts/.mts are Blu-ray BDAV transport
+// streams with 192-byte packets, which ExoPlayer's TsExtractor (188-byte only)
+// cannot parse; the fix is a lossless remux to MKV.
+func containerAdvisory(mediaPath string) string {
+	switch strings.ToLower(filepath.Ext(mediaPath)) {
+	case ".m2ts", ".mts":
+		out := remuxMkvPath(mediaPath)
+		return "" +
+			"\n⚠ Blu-ray transport stream (" + filepath.Ext(mediaPath) + ") detected.\n" +
+			"  The Fire TV client (ExoPlayer) can't parse 192-byte M2TS packets, so this\n" +
+			"  file won't play. Remux to MKV once — lossless and fast (no re-encode),\n" +
+			"  keeps every video/audio/subtitle track:\n\n" +
+			fmt.Sprintf("    ffmpeg -i \"%s\" -map 0 -c copy \"%s\"\n\n", mediaPath, out) +
+			"  Then run bitstreamer on the .mkv instead.\n"
+	}
+	return ""
 }
 
 func (a *app) handler() http.Handler {
@@ -86,6 +166,8 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/log", a.handleClientLog)
 	mux.HandleFunc("/position", a.handlePosition)
 	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
+	mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
+	mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
 	return logRequests(mux)
 }
 
@@ -103,6 +185,14 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"mime":       a.mediaMime,
 		"chapters":   chapters,
 		"thumbnails": a.thumbs.available(),
+		"storyboard": a.story.enabled(),
+		"video": map[string]any{
+			"hdr":        a.probe.isHDR,
+			"hdr10plus":  a.probe.hdr10plus,
+			"transfer":   a.probe.colorTransfer,
+			"colorSpace": a.probe.colorSpace,
+			"dvProfile":  a.probe.dvProfile,
+		},
 	})
 }
 
@@ -215,6 +305,34 @@ func (a *app) handleChapterThumb(w http.ResponseWriter, r *http.Request) {
 	path, err := a.thumbs.get(index)
 	if err != nil {
 		http.Error(w, "thumbnail unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "max-age=86400")
+	http.ServeFile(w, r, path)
+}
+
+// handleStoryboardManifest returns the scrubbing-preview layout. 404 until the
+// sprite sheets have finished generating (client may retry).
+func (a *app) handleStoryboardManifest(w http.ResponseWriter, r *http.Request) {
+	if !a.story.isReady() {
+		http.Error(w, "storyboard not ready", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(a.story.manifest())
+}
+
+// handleStoryboardSheet serves sprite sheet ?sheet=N.
+func (a *app) handleStoryboardSheet(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(r.URL.Query().Get("sheet"))
+	if err != nil {
+		http.Error(w, "sheet must be an integer", http.StatusBadRequest)
+		return
+	}
+	path, ok := a.story.sheetPath(n)
+	if !ok {
+		http.Error(w, "sheet unavailable", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")

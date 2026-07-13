@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/player_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
@@ -16,16 +17,47 @@
 
     <TextView
         android:id="@+id/debug_overlay"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="16dp"
+        android:padding="10dp"
+        android:background="#C0000000"
+        android:fontFamily="monospace"
+        android:textSize="11sp"
+        android:lineSpacingMultiplier="1.1"
+        android:textColor="#B8F5B8"
+        android:visibility="gone" />
+
+    <!-- Scrubbing preview: follows the seek-bar thumb while scrubbing. Positioned
+         in code (translationX/Y); top|start anchor keeps that math simple. -->
+    <LinearLayout
+        android:id="@+id/scrub_preview"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="48dp"
-        android:padding="12dp"
-        android:background="#C0000000"
-        android:fontFamily="monospace"
-        android:textSize="14sp"
-        android:textColor="#B8F5B8"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:padding="4dp"
+        android:background="#CC000000"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/scrub_preview_image"
+            android:layout_width="240dp"
+            android:layout_height="135dp"
+            android:background="#1A2530"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:id="@+id/scrub_preview_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/error_view"

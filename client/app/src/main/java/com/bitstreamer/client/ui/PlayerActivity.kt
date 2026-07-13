@@ -9,7 +9,10 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -18,19 +21,24 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.ui.DefaultTimeBar
+import androidx.media3.ui.DefaultTrackNameProvider
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
+import androidx.media3.ui.TimeBar
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
 import com.bitstreamer.client.playback.AudioCaps
 import com.bitstreamer.client.playback.ChapterThumbnailLoader
 import com.bitstreamer.client.playback.PlayerFactory
+import com.bitstreamer.client.playback.StoryboardLoader
 import java.util.concurrent.TimeUnit
 
 /**
@@ -47,15 +55,49 @@ class PlayerActivity : Activity() {
     private lateinit var playerView: PlayerView
     private lateinit var overlayView: TextView
     private lateinit var errorView: TextView
-    private var audioTrackDescription = "AudioTrack not initialized yet"
+    private var audioTrackDescription = "not initialized"
+    private var videoDecoderName = "?"
+    private var audioDecoderName = "?"
+    private var droppedFrames = 0
     private var api: ServerApi? = null
     private var resumeDialog: AlertDialog? = null
     private var chaptersDialog: AlertDialog? = null
+    private var trackDialog: AlertDialog? = null
     private var chapters: List<ServerApi.Chapter> = emptyList()
     private var thumbnailLoader: ChapterThumbnailLoader? = null
     private var hasThumbnails = false
     private var baseUrl: String = ""
+
+    private var storyboard: ServerApi.Storyboard? = null
+    private var storyboardLoader: StoryboardLoader? = null
+    private var storyboardEnabled = false
+
+    // Authoritative colour info from the server's ffprobe.
+    private var srcHdr = false
+    private var srcHdr10Plus = false
+    private var srcTransfer = ""
+    private var srcColorSpace = ""
+    private var srcDvProfile = -1
+    private lateinit var playerRoot: View
+    private lateinit var scrubPreview: LinearLayout
+    private lateinit var scrubPreviewImage: ImageView
+    private lateinit var scrubPreviewTime: TextView
+
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val scrubListener = object : TimeBar.OnScrubListener {
+        override fun onScrubStart(timeBar: TimeBar, position: Long) = showScrubPreview(position)
+        override fun onScrubMove(timeBar: TimeBar, position: Long) = showScrubPreview(position)
+        override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+            hideScrubPreview()
+            if (!canceled) {
+                // Start a bit before the target so the scene shown in the preview
+                // actually plays, instead of starting just after it.
+                val target = (position - SEEK_LEAD_MS).coerceAtLeast(0)
+                mainHandler.post { player?.seekTo(target) } // runs after the controller's own seek
+            }
+        }
+    }
 
     private val reportPosition = object : Runnable {
         override fun run() {
@@ -68,12 +110,24 @@ class PlayerActivity : Activity() {
         }
     }
 
+    // Refreshes the stats overlay ~1x/sec while it's visible.
+    private val statsRefresh = object : Runnable {
+        override fun run() {
+            updateOverlay()
+            if (overlayView.visibility == View.VISIBLE) mainHandler.postDelayed(this, 1000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_player)
         playerView = findViewById(R.id.player_view)
         overlayView = findViewById(R.id.debug_overlay)
         errorView = findViewById(R.id.error_view)
+        playerRoot = findViewById(R.id.player_root)
+        scrubPreview = findViewById(R.id.scrub_preview)
+        scrubPreviewImage = findViewById(R.id.scrub_preview_image)
+        scrubPreviewTime = findViewById(R.id.scrub_preview_time)
     }
 
     override fun onStart() {
@@ -93,10 +147,20 @@ class PlayerActivity : Activity() {
             val a = api
             val resumeMs = a?.getResumePositionMs() ?: 0
             val info = a?.getInfo()
+            // Storyboard may still be generating; fetch it if the server reports
+            // it enabled, and poll later (setupControls) if not ready yet.
+            val sb = if (info?.storyboardAvailable == true) a?.getStoryboard() else null
             mainHandler.post {
                 if (!isFinishing) {
                     chapters = info?.chapters ?: emptyList()
                     hasThumbnails = info?.thumbnailsAvailable ?: false
+                    storyboardEnabled = info?.storyboardAvailable ?: false
+                    storyboard = sb
+                    srcHdr = info?.videoHdr ?: false
+                    srcHdr10Plus = info?.videoHdr10Plus ?: false
+                    srcTransfer = info?.videoTransfer ?: ""
+                    srcColorSpace = info?.videoColorSpace ?: ""
+                    srcDvProfile = info?.dvProfile ?: -1
                     initializePlayer(url, resumeMs)
                 }
             }
@@ -106,12 +170,18 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         mainHandler.removeCallbacks(reportPosition)
+        mainHandler.removeCallbacks(statsRefresh)
         resumeDialog?.dismiss()
         resumeDialog = null
         chaptersDialog?.dismiss()
         chaptersDialog = null
+        trackDialog?.dismiss()
+        trackDialog = null
         thumbnailLoader?.release()
         thumbnailLoader = null
+        storyboardLoader?.release()
+        storyboardLoader = null
+        hideScrubPreview()
         val p = player
         val finalPositionMs = when {
             p == null -> -1
@@ -132,6 +202,7 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus (native DV decoder)")
         val exoPlayer = PlayerFactory.create(this)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
@@ -167,6 +238,7 @@ class PlayerActivity : Activity() {
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
+                audioDecoderName = decoderName
                 RemoteLog.d(TAG, "audio DECODER in use: $decoderName (passthrough NOT active for this track)")
             }
 
@@ -176,7 +248,16 @@ class PlayerActivity : Activity() {
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
+                videoDecoderName = decoderName
                 RemoteLog.d(TAG, "video decoder: $decoderName")
+            }
+
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrameCount: Int,
+                elapsedMs: Long,
+            ) {
+                droppedFrames += droppedFrameCount
             }
 
             override fun onAudioSinkError(
@@ -251,6 +332,19 @@ class PlayerActivity : Activity() {
             showTrackDialog(C.TRACK_TYPE_TEXT, getString(R.string.dialog_subtitles_title), allowOff = true)
         }
         btnChapters?.setOnClickListener { showChaptersDialog() }
+        playerView.findViewById<ImageButton>(R.id.btn_stats)?.setOnClickListener { toggleStats() }
+
+        // Seek-bar D-pad step = storyboard interval (default 30s), so each
+        // left/right press lands on the next preview frame — and no more
+        // "jumps several minutes". Applied whether or not previews exist.
+        val timeBar = playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+        timeBar?.setKeyTimeIncrement(storyboard?.intervalMs ?: 30_000L)
+        timeBar?.removeListener(scrubListener)
+        timeBar?.addListener(scrubListener) // no-op preview until a loader exists
+        when {
+            storyboard != null -> enableStoryboard(storyboard!!)
+            storyboardEnabled -> pollStoryboard() // still generating on the server
+        }
 
         if (chapters.isNotEmpty()) {
             btnChapters?.visibility = View.VISIBLE
@@ -277,13 +371,60 @@ class PlayerActivity : Activity() {
         }
     }
 
+    private data class TrackEntry(
+        val label: String,
+        val group: TrackGroup?, // null = "Off"
+        val trackIndex: Int,
+        val selected: Boolean,
+    )
+
+    /**
+     * Custom audio/subtitle picker: selecting a row with D-pad OK applies it
+     * immediately and closes (no OK/Cancel; Back cancels). The dialog is widened
+     * to fit the longest track name so labels aren't truncated.
+     */
     private fun showTrackDialog(trackType: Int, title: String, allowOff: Boolean) {
         val p = player ?: return
-        TrackSelectionDialogBuilder(this, title, p, trackType)
-            .setAllowAdaptiveSelections(false)
-            .setShowDisableOption(allowOff)
-            .build()
-            .show()
+        val nameProvider = DefaultTrackNameProvider(resources)
+        val entries = mutableListOf<TrackEntry>()
+
+        if (allowOff) {
+            val anySelected = p.currentTracks.groups.any { it.type == trackType && it.isSelected }
+            entries.add(TrackEntry(getString(R.string.track_off), null, -1, !anySelected))
+        }
+        for (group in p.currentTracks.groups) {
+            if (group.type != trackType) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                entries.add(
+                    TrackEntry(
+                        nameProvider.getTrackName(group.getTrackFormat(i)),
+                        group.mediaTrackGroup, i, group.isTrackSelected(i),
+                    )
+                )
+            }
+        }
+        if (entries.isEmpty()) return
+
+        val labels = entries.map { (if (it.selected) "●  " else "○  ") + it.label }
+        val listView = ListView(this)
+        // Custom row wraps long labels (no truncation) with a sensible min width.
+        listView.adapter = ArrayAdapter(this, R.layout.track_dialog_row, R.id.track_text, labels)
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val e = entries[pos]
+            val params = p.trackSelectionParameters.buildUpon()
+            if (e.group == null) {
+                params.clearOverridesOfType(trackType).setTrackTypeDisabled(trackType, true)
+            } else {
+                params.setTrackTypeDisabled(trackType, false)
+                    .setOverrideForType(TrackSelectionOverride(e.group, e.trackIndex))
+            }
+            p.trackSelectionParameters = params.build()
+            trackDialog?.dismiss()
+        }
+
+        trackDialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
+        trackDialog?.show()
     }
 
     private fun showChaptersDialog() {
@@ -301,6 +442,74 @@ class PlayerActivity : Activity() {
             .setView(listView)
             .create()
         chaptersDialog?.show()
+    }
+
+    private fun enableStoryboard(sb: ServerApi.Storyboard) {
+        storyboard = sb
+        storyboardLoader?.release()
+        storyboardLoader = api?.let { StoryboardLoader(it, sb) }
+        playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
+            ?.setKeyTimeIncrement(sb.intervalMs)
+        RemoteLog.d(TAG, "scrub previews enabled: ${sb.tileCount} tiles @${sb.intervalMs}ms")
+    }
+
+    /** Polls for the storyboard manifest while the server is still generating it. */
+    private fun pollStoryboard() {
+        val a = api ?: return
+        Thread {
+            repeat(STORYBOARD_POLL_ATTEMPTS) {
+                if (isFinishing || storyboardLoader != null) return@Thread
+                val sb = a.getStoryboard()
+                if (sb != null) {
+                    mainHandler.post { if (!isFinishing) enableStoryboard(sb) }
+                    return@Thread
+                }
+                try {
+                    Thread.sleep(STORYBOARD_POLL_INTERVAL_MS)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+            }
+        }.start()
+    }
+
+    private fun showScrubPreview(position: Long) {
+        val loader = storyboardLoader ?: return
+        scrubPreview.visibility = View.VISIBLE
+        scrubPreviewTime.text = formatTime(position)
+        loader.tileForTime(position) { bmp ->
+            if (scrubPreview.visibility == View.VISIBLE && bmp != null) {
+                scrubPreviewImage.setImageBitmap(bmp)
+            }
+        }
+        positionScrubPreview(position)
+    }
+
+    private fun hideScrubPreview() {
+        if (this::scrubPreview.isInitialized) scrubPreview.visibility = View.GONE
+    }
+
+    /** Positions the preview horizontally under the scrub thumb, above the seek bar. */
+    private fun positionScrubPreview(position: Long) {
+        val duration = player?.duration ?: return
+        if (duration <= 0) return
+        val timeBar = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress) ?: return
+
+        val tbLoc = IntArray(2)
+        timeBar.getLocationOnScreen(tbLoc)
+        val rootLoc = IntArray(2)
+        playerRoot.getLocationOnScreen(rootLoc)
+
+        val frac = (position.toFloat() / duration).coerceIn(0f, 1f)
+        val scrubX = (tbLoc[0] - rootLoc[0]) + frac * timeBar.width
+        val topInRoot = tbLoc[1] - rootLoc[1]
+        val gap = 12 * resources.displayMetrics.density
+        scrubPreview.post {
+            val w = scrubPreview.width
+            val maxX = (playerRoot.width - w).toFloat().coerceAtLeast(0f)
+            scrubPreview.translationX = (scrubX - w / 2f).coerceIn(0f, maxX)
+            scrubPreview.translationY = (topInRoot - scrubPreview.height - gap).coerceAtLeast(0f)
+        }
     }
 
     private fun showResumeDialog(resumeMs: Long) {
@@ -334,10 +543,9 @@ class PlayerActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Menu (remote's ≡ button) toggles the stats-for-nerds overlay.
         if (event.keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
-            overlayView.visibility =
-                if (overlayView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            updateOverlay()
+            toggleStats()
             return true
         }
         // Back with the controller overlay up: dismiss the overlay, don't leave
@@ -367,18 +575,57 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun updateOverlay() {
-        if (overlayView.visibility != View.VISIBLE) return
-        val audioFormat = player?.audioFormat
-        val videoFormat = player?.videoFormat
-        overlayView.text = buildString {
-            append("file audio:  ").append(describeFormat(audioFormat)).append('\n')
-            append("AudioTrack:  ").append(audioTrackDescription).append('\n')
-            append("sink caps:   ").append(AudioCaps.describe(this@PlayerActivity)).append('\n')
-            append("video:       ").append(describeFormat(videoFormat))
+    private fun toggleStats() {
+        val show = overlayView.visibility != View.VISIBLE
+        overlayView.visibility = if (show) View.VISIBLE else View.GONE
+        mainHandler.removeCallbacks(statsRefresh)
+        if (show) {
+            updateOverlay()
+            mainHandler.postDelayed(statsRefresh, 1000)
         }
     }
 
+    /** Renders the "stats for nerds" table (Name  Value), refreshed while visible. */
+    private fun updateOverlay() {
+        if (overlayView.visibility != View.VISIBLE) return
+        val p = player
+        val v = p?.videoFormat
+        val a = p?.audioFormat
+        val sb = StringBuilder("── STATS FOR NERDS ──\n")
+        fun row(name: String, value: String) {
+            if (value.isNotEmpty()) sb.append(name.padEnd(11)).append(value).append('\n')
+        }
+
+        row("file", intent.getStringExtra(EXTRA_TITLE) ?: "")
+        row("state", playbackStateName(p?.playbackState) + if (p?.isPlaying == true) " (playing)" else " (paused)")
+        if (p != null && p.duration > 0) {
+            row("position", "${formatTime(p.currentPosition)} / ${formatTime(p.duration)}  ${p.bufferedPercentage}% buf")
+        }
+
+        sb.append("— video —\n")
+        row("codec", codecStr(v))
+        if (v != null && v.width != Format.NO_VALUE) row("resolution", "${v.width}x${v.height}")
+        if (v != null && v.frameRate != Format.NO_VALUE.toFloat() && v.frameRate > 0) {
+            row("frame rate", String.format("%.3f fps", v.frameRate))
+        }
+        row("video rate", bitrateStr(v?.bitrate ?: Format.NO_VALUE, mbps = true))
+        row("color", sourceColorStr())
+        row("decoder", videoDecoderName)
+        row("dropped", droppedFrames.toString())
+
+        sb.append("— audio —\n")
+        row("codec", codecStr(a))
+        if (a != null && a.channelCount != Format.NO_VALUE) row("channels", "${a.channelCount}")
+        if (a != null && a.sampleRate != Format.NO_VALUE) row("sample rate", "${a.sampleRate} Hz")
+        row("audio rate", bitrateStr(a?.bitrate ?: Format.NO_VALUE, mbps = false))
+        row("language", a?.language ?: "")
+        row("output", audioTrackDescription)
+        row("HDMI caps", AudioCaps.describe(this))
+
+        overlayView.text = sb.toString()
+    }
+
+    /** Compact one-line format description for RemoteLog. */
     private fun describeFormat(format: Format?): String {
         if (format == null) return "none"
         val channels =
@@ -387,6 +634,48 @@ class PlayerActivity : Activity() {
             if (format.sampleRate != Format.NO_VALUE) " ${format.sampleRate}Hz" else ""
         val size = if (format.width != Format.NO_VALUE) " ${format.width}x${format.height}" else ""
         return "${format.sampleMimeType}$channels$rate$size"
+    }
+
+    private fun codecStr(f: Format?): String {
+        if (f == null) return "none"
+        val mime = f.sampleMimeType ?: "?"
+        return if (f.codecs != null) "$mime (${f.codecs})" else mime
+    }
+
+    private fun bitrateStr(bitrate: Int, mbps: Boolean): String {
+        if (bitrate == Format.NO_VALUE || bitrate <= 0) return ""
+        return if (mbps) String.format("%.1f Mbps", bitrate / 1_000_000.0)
+        else "${bitrate / 1000} kbps"
+    }
+
+    /** Colour/HDR from the server's ffprobe (authoritative; Media3's client-side
+     *  colorInfo is unreliable and often reports HDR sources as SDR). */
+    private fun sourceColorStr(): String {
+        val parts = mutableListOf(
+            when {
+                srcTransfer == "smpte2084" -> "HDR10"
+                srcTransfer == "arib-std-b67" -> "HLG"
+                srcHdr -> "HDR"
+                else -> "SDR"
+            }
+        )
+        if (srcHdr10Plus) parts.add("HDR10+")
+        if (srcDvProfile >= 0) parts.add("DV p$srcDvProfile")
+        val space = when (srcColorSpace) {
+            "bt2020nc", "bt2020c" -> "BT.2020"
+            "bt709" -> "BT.709"
+            else -> ""
+        }
+        val s = parts.joinToString(" + ")
+        return if (space.isEmpty()) s else "$s · $space"
+    }
+
+    private fun playbackStateName(state: Int?): String = when (state) {
+        Player.STATE_IDLE -> "idle"
+        Player.STATE_BUFFERING -> "buffering"
+        Player.STATE_READY -> "ready"
+        Player.STATE_ENDED -> "ended"
+        else -> "?"
     }
 
     private fun showError(error: PlaybackException) {
@@ -407,5 +696,8 @@ class PlayerActivity : Activity() {
         const val EXTRA_TITLE = "title"
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
+        private const val STORYBOARD_POLL_ATTEMPTS = 12
+        private const val STORYBOARD_POLL_INTERVAL_MS = 5_000L
+        private const val SEEK_LEAD_MS = 2_000L // start a bit before the scrubbed point
     }
 }

@@ -8,7 +8,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
 )
 
 const (
@@ -24,6 +27,9 @@ func main() {
 	apk := flag.String("apk", "", "path to the client APK served at /client.apk (default: client.apk next to the executable)")
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
+	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
+	keepCache := flag.Bool("keep-cache", false, "keep the thumbnail/storyboard cache on exit instead of deleting it")
+	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
@@ -55,8 +61,31 @@ func main() {
 	if *resumeFile == "" {
 		*resumeFile = filepath.Join(exeDir, "resume.json")
 	}
+	if *ffmpegLogFile == "" {
+		*ffmpegLogFile = filepath.Join(exeDir, "ffmpeg-logs.txt")
+	}
+	// Start the ffmpeg/ffprobe log before newApp, so the startup ffprobe is captured.
+	initFFmpegLog(*ffmpegLogFile)
 
-	app, err := newApp(flag.Arg(0), *name, *apk, *clientLog, *resumeFile, *port)
+	if *interval < 1 {
+		*interval = 1
+	}
+
+	// Reject file types the Fire TV client can't play, with clear guidance.
+	mediaPath := flag.Arg(0)
+	ext := strings.ToLower(filepath.Ext(mediaPath))
+	if ext == ".m2ts" || ext == ".mts" {
+		fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
+		os.Exit(1)
+	}
+	if !isPlayable(mediaPath) {
+		fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
+		fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
+		fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
+		os.Exit(1)
+	}
+
+	app, err := newApp(mediaPath, *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -82,6 +111,39 @@ func main() {
 			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 		}
 	}
+	if app.probe.summary != "" {
+		fmt.Printf("Video: %s\n", app.probe.summary)
+	}
+	if app.probe.isHDR && app.thumbs.ffmpegPath != "" {
+		if hasZscale(app.thumbs.ffmpegPath) {
+			fmt.Println("HDR thumbnails: tonemapped to SDR (ffmpeg zscale present)")
+		} else {
+			fmt.Println("HDR thumbnails: not tonemapped (this ffmpeg has no zscale; build with --enable-libzimg)")
+		}
+	}
+	if app.probe.dvProfile == 7 {
+		fmt.Print(dolbyVisionAdvisory(mediaPath))
+	}
+	if app.thumbs.available() || app.story.enabled() {
+		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
+	}
+	if app.story.enabled() {
+		fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
+		go app.story.generate()
+	}
+
+	// On Ctrl+C / termination, delete the whole cache (thumbnails + storyboard)
+	// unless --keep-cache was passed.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		if !*keepCache {
+			os.RemoveAll(app.cacheRoot)
+		}
+		os.Exit(0)
+	}()
+
 	fmt.Println()
 	fmt.Println("Waiting for a client to connect... (Ctrl+C to stop)")
 

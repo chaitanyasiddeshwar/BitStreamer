@@ -57,7 +57,7 @@ func TestInfoIncludesChapters(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, err := newApp(path, "T", filepath.Join(dir, "c.apk"),
-		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898)
+		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898, 30000)
 	if err != nil {
 		t.Fatal(err)
 	}
