@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 )
@@ -49,5 +50,5 @@ func runFFmpegExtract(ffmpegPath, mediaPath string, seekSec float64, width, qual
 		"-f", "mjpeg",
 		"-y", outPath,
 	)
-	return cmd.Run()
+	return ffmpegLog.runLogged(fmt.Sprintf("ffmpeg %.3fs hdr=%v -> %s", seekSec, hdr, filepath.Base(outPath)), cmd)
 }

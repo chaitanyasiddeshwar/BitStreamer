@@ -154,3 +154,7 @@ server prints which modes are enabled at startup. See [docs/THUMBNAILS.md](docs/
 The client streams its playback diagnostics to the server, which appends them to
 `client-logs.txt` next to the server binary — check that file (or share it) when something
 doesn't play or the audio format looks wrong.
+
+If thumbnails or scrub previews look off (or don't appear), check `ffmpeg-logs.txt` next to
+the server binary — every ffmpeg/ffprobe warning or error is appended there, with a session
+header per server start.

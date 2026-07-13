@@ -7,6 +7,7 @@ server/dist/
 client.apk
 *.apk
 client-logs.txt
+ffmpeg-logs.txt
 resume.json
 
 # Android / Gradle

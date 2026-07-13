@@ -27,6 +27,7 @@ func main() {
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
+	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
@@ -58,6 +59,11 @@ func main() {
 	if *resumeFile == "" {
 		*resumeFile = filepath.Join(exeDir, "resume.json")
 	}
+	if *ffmpegLogFile == "" {
+		*ffmpegLogFile = filepath.Join(exeDir, "ffmpeg-logs.txt")
+	}
+	// Start the ffmpeg/ffprobe log before newApp, so the startup ffprobe is captured.
+	initFFmpegLog(*ffmpegLogFile)
 
 	if *interval < 1 {
 		*interval = 1
@@ -90,6 +96,9 @@ func main() {
 	}
 	if app.probeSummary != "" {
 		fmt.Printf("Video: %s\n", app.probeSummary)
+	}
+	if app.thumbs.available() || app.story.enabled() {
+		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
 	}
 	if app.story.enabled() {
 		fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)

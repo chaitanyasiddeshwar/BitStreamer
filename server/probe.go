@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,12 +27,16 @@ func probeMedia(path string) (mediaProbe, bool) {
 	if ffprobe == "" {
 		return mediaProbe{}, false
 	}
-	out, err := exec.Command(ffprobe,
+	cmd := exec.Command(ffprobe,
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-show_entries", "stream=color_transfer,color_space,color_primaries:stream_side_data=dv_profile",
 		"-of", "json", path,
-	).Output()
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	ffmpegLog.record("ffprobe "+filepath.Base(path), stderr.Bytes(), err)
 	if err != nil {
 		return mediaProbe{}, false
 	}
