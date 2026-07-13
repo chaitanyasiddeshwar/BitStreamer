@@ -21,11 +21,13 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -34,7 +36,6 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.DefaultTrackNameProvider
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.TimeBar
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
@@ -160,16 +161,17 @@ class PlayerActivity : Activity() {
     /**
      * Styles text subtitles (SRT and other text cues). By default Media3 defers
      * to the Fire TV system caption style, which is white text on an opaque
-     * black window — the full-width black rectangle. We replace that with an
-     * Emby-like look: white text on a semi-transparent black background that
-     * hugs the text (no window box), plus a thin black outline so it stays
-     * legible over bright/HDR scenes. Bitmap subtitles (PGS/VOBSUB) are images
-     * and can't be restyled; embedded ASS/SSA styling is preserved.
+     * black window — the full-width black rectangle. We replace that with a
+     * Netflix/Prime-like look: soft-grey text with a black outline (a "shadow"
+     * hugging each glyph) and **no** background box or window, at a modest size.
+     * Vertical placement is handled separately (see [updateSubtitlePosition]) so
+     * subtitles stay inside the picture on letterboxed widescreen movies.
+     * Bitmap subtitles (PGS/VOBSUB) are images and can't be restyled; embedded
+     * ASS/SSA styling is preserved.
      *
-     * To tweak: `backgroundColor` is the box that hugs the text (set to
-     * Color.TRANSPARENT for outline-only, no box); `windowColor` is the
-     * full-width rectangle (keep transparent); `edgeType` can be
-     * EDGE_TYPE_NONE / _OUTLINE / _DROP_SHADOW. See docs/MEDIA3.md.
+     * To tweak: `edgeType` can be EDGE_TYPE_OUTLINE (border) or _DROP_SHADOW
+     * (softer shadow); set a non-transparent `backgroundColor` for a box that
+     * hugs the text, or `windowColor` for a full-width rectangle. See docs/MEDIA3.md.
      */
     private fun styleSubtitles() {
         val sv = playerView.subtitleView ?: return
@@ -177,14 +179,42 @@ class PlayerActivity : Activity() {
         sv.setStyle(
             CaptionStyleCompat(
                 0xFFC0C0C0.toInt(),                 // text: soft grey, easier on the eyes than white
-                0xB3000000.toInt(),                 // background hugging the text (~70% black)
-                Color.TRANSPARENT,                  // window: no full-width rectangle
+                Color.TRANSPARENT,                  // no background box behind the text
+                Color.TRANSPARENT,                  // no full-width window rectangle
                 CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                Color.BLACK,                        // outline colour
+                Color.BLACK,                        // black outline -> shadow around each glyph
                 null,                               // default typeface
             )
         )
-        sv.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION)
+        sv.setFractionalTextSize(SUBTITLE_TEXT_SIZE_FRACTION)
+        sv.setBottomPaddingFraction(SUBTITLE_BOTTOM_PADDING_FRACTION)
+    }
+
+    /**
+     * Keeps subtitles inside the picture regardless of the movie's aspect ratio.
+     * Media3's SubtitleView fills the whole PlayerView, so on a widescreen movie
+     * letterboxed on a 16:9 screen, bottom-anchored subtitles land in (or across)
+     * the lower black bar. We measure the bar from the video vs. view aspect and
+     * raise the subtitle baseline above it — the way Netflix/Prime place them.
+     */
+    private fun updateSubtitlePosition() {
+        val sv = playerView.subtitleView ?: return
+        val vs = player?.videoSize ?: return
+        val vw = playerView.width
+        val vh = playerView.height
+        if (vw == 0 || vh == 0 || vs.width == 0 || vs.height == 0) return
+        val par = if (vs.pixelWidthHeightRatio > 0f) vs.pixelWidthHeightRatio else 1f
+        val videoAspect = vs.width * par / vs.height
+        val viewAspect = vw.toFloat() / vh
+        var bottomFraction = SUBTITLE_BOTTOM_PADDING_FRACTION
+        if (videoAspect > viewAspect) {
+            // Letterboxed: black bars top and bottom. Lift subtitles above the
+            // bottom bar, then keep the same in-picture margin.
+            val displayedVideoHeight = vw / videoAspect
+            val barFraction = (vh - displayedVideoHeight) / 2f / vh
+            bottomFraction = barFraction + SUBTITLE_BOTTOM_PADDING_FRACTION
+        }
+        sv.setBottomPaddingFraction(bottomFraction.coerceIn(0f, 0.45f))
     }
 
     override fun onStart() {
@@ -359,6 +389,12 @@ class PlayerActivity : Activity() {
                 updateOverlay()
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                // Video dimensions known/changed -> re-place subtitles for the
+                // movie's aspect ratio (view may not be measured yet, so post).
+                playerView.post { updateSubtitlePosition() }
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 RemoteLog.d(TAG, "playback state: $playbackState")
                 if (playbackState == Player.STATE_READY) {
@@ -506,12 +542,15 @@ class PlayerActivity : Activity() {
             if (group.type != trackType) continue
             for (i in 0 until group.length) {
                 if (!group.isTrackSupported(i)) continue
-                entries.add(
-                    TrackEntry(
-                        nameProvider.getTrackName(group.getTrackFormat(i)),
-                        group.mediaTrackGroup, i, group.isTrackSelected(i),
-                    )
-                )
+                val format = group.getTrackFormat(i)
+                val name = nameProvider.getTrackName(format)
+                // For subtitles, tag the format (SRT/ASS/PGS/...) after the name.
+                val label = if (trackType == C.TRACK_TYPE_TEXT) {
+                    "$name  [${subtitleTypeLabel(format.sampleMimeType)}]"
+                } else {
+                    name
+                }
+                entries.add(TrackEntry(label, group.mediaTrackGroup, i, group.isTrackSelected(i)))
             }
         }
         if (entries.isEmpty()) return
@@ -535,6 +574,21 @@ class PlayerActivity : Activity() {
 
         trackDialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
         trackDialog?.show()
+    }
+
+    /** Short, friendly label for a subtitle track's format, shown in the menu. */
+    private fun subtitleTypeLabel(mimeType: String?): String = when (mimeType) {
+        MimeTypes.APPLICATION_SUBRIP -> "SRT"
+        MimeTypes.TEXT_SSA -> "ASS"
+        MimeTypes.APPLICATION_PGS -> "PGS"
+        MimeTypes.APPLICATION_VOBSUB -> "VOBSUB"
+        MimeTypes.TEXT_VTT -> "VTT"
+        MimeTypes.APPLICATION_TTML -> "TTML"
+        MimeTypes.APPLICATION_DVBSUBS -> "DVB"
+        MimeTypes.APPLICATION_CEA608, MimeTypes.APPLICATION_MP4CEA608 -> "CEA-608"
+        MimeTypes.APPLICATION_CEA708 -> "CEA-708"
+        null -> "?"
+        else -> mimeType.substringAfterLast('/').uppercase()
     }
 
     private fun showChaptersDialog() {
@@ -850,6 +904,11 @@ class PlayerActivity : Activity() {
         private const val IMAGE_DURATION_MS = 3_600_000L // 1h: image stays until user navigates
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
+        // Subtitle sizing/placement (fractions of the player-view height). Text
+        // size is a touch smaller than Media3's 0.0533 default; bottom padding is
+        // the in-picture margin above the video's bottom edge (see updateSubtitlePosition).
+        private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.042f
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.06f
         // Audio-device error recovery (transient passthrough failures after an
         // app switch). ~1-3s backoff, up to ~40s total before giving up.
         private const val MAX_AUDIO_RETRIES = 15
