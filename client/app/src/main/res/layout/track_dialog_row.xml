@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Track selector row: wraps long labels to multiple lines (no ellipsis) so
+     names are never truncated, with a sensible minimum width. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/track_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minWidth="420dp"
+    android:paddingHorizontal="20dp"
+    android:paddingVertical="12dp"
+    android:textColor="#FFFFFF"
+    android:textSize="18sp" />

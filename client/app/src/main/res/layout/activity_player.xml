@@ -17,14 +17,15 @@
 
     <TextView
         android:id="@+id/debug_overlay"
-        android:layout_width="wrap_content"
+        android:layout_width="300dp"
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
-        android:layout_margin="48dp"
-        android:padding="12dp"
+        android:layout_margin="16dp"
+        android:padding="10dp"
         android:background="#C0000000"
         android:fontFamily="monospace"
-        android:textSize="14sp"
+        android:textSize="11sp"
+        android:lineSpacingMultiplier="1.1"
         android:textColor="#B8F5B8"
         android:visibility="gone" />
 

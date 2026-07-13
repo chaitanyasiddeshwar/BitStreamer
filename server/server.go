@@ -34,7 +34,7 @@ type app struct {
 	chapters      []Chapter
 	thumbs        *thumbnailer
 	story         *storyboard
-	probeSummary  string
+	probe         mediaProbe
 }
 
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
@@ -48,15 +48,12 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	chapters := parseChapters(mediaPath)
 	// Prefer ffprobe (reads the real stream + Dolby Vision profile); fall back
 	// to the MKV container's colour tags if ffprobe isn't available.
-	hdr := false
-	probeSummary := ""
-	if p, ok := probeMedia(mediaPath); ok {
-		hdr = p.isHDR
-		probeSummary = p.summary
-	} else {
-		hdr = parseIsHDR(mediaPath)
-		probeSummary = fmt.Sprintf("HDR=%v (from MKV container tags; ffprobe unavailable)", hdr)
+	probe, ok := probeMedia(mediaPath)
+	if !ok {
+		probe = mediaProbe{isHDR: parseIsHDR(mediaPath), dvProfile: -1}
+		probe.summary = fmt.Sprintf("HDR=%v (from MKV container tags; ffprobe unavailable)", probe.isHDR)
 	}
+	hdr := probe.isHDR
 	return &app{
 		mediaPath:     mediaPath,
 		mediaName:     filepath.Base(mediaPath),
@@ -71,7 +68,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		chapters:      chapters,
 		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr),
 		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr),
-		probeSummary:  probeSummary,
+		probe:         probe,
 	}, nil
 }
 
@@ -121,6 +118,12 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"chapters":   chapters,
 		"thumbnails": a.thumbs.available(),
 		"storyboard": a.story.enabled(),
+		"video": map[string]any{
+			"hdr":        a.probe.isHDR,
+			"transfer":   a.probe.colorTransfer,
+			"colorSpace": a.probe.colorSpace,
+			"dvProfile":  a.probe.dvProfile,
+		},
 	})
 }
 

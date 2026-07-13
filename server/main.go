@@ -94,8 +94,8 @@ func main() {
 			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 		}
 	}
-	if app.probeSummary != "" {
-		fmt.Printf("Video: %s\n", app.probeSummary)
+	if app.probe.summary != "" {
+		fmt.Printf("Video: %s\n", app.probe.summary)
 	}
 	if app.thumbs.available() || app.story.enabled() {
 		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)

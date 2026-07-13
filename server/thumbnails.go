@@ -129,7 +129,9 @@ func (t *thumbnailer) lockFor(index int) *sync.Mutex {
 // thumbPath is stable per (file, mtime, index) so cached thumbnails survive a
 // server restart but are regenerated if the file changes.
 func (t *thumbnailer) thumbPath(index int) string {
-	key := fmt.Sprintf("%s|%d|%d", t.mediaPath, t.mediaMod, index)
+	// hdr is part of the key so a change in tonemapping (or HDR detection)
+	// regenerates rather than reusing a stale, non-tonemapped cached frame.
+	key := fmt.Sprintf("%s|%d|%d|hdr=%v", t.mediaPath, t.mediaMod, index, t.hdr)
 	sum := sha1.Sum([]byte(key))
 	return filepath.Join(t.cacheDir, fmt.Sprintf("%x_%d.jpg", sum[:8], index))
 }

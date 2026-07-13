@@ -2,7 +2,6 @@ package com.bitstreamer.client.ui
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -10,7 +9,6 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
-import android.view.WindowManager
 import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -73,6 +71,12 @@ class PlayerActivity : Activity() {
     private var storyboard: ServerApi.Storyboard? = null
     private var storyboardLoader: StoryboardLoader? = null
     private var storyboardEnabled = false
+
+    // Authoritative colour info from the server's ffprobe.
+    private var srcHdr = false
+    private var srcTransfer = ""
+    private var srcColorSpace = ""
+    private var srcDvProfile = -1
     private lateinit var playerRoot: View
     private lateinit var scrubPreview: LinearLayout
     private lateinit var scrubPreviewImage: ImageView
@@ -151,6 +155,10 @@ class PlayerActivity : Activity() {
                     hasThumbnails = info?.thumbnailsAvailable ?: false
                     storyboardEnabled = info?.storyboardAvailable ?: false
                     storyboard = sb
+                    srcHdr = info?.videoHdr ?: false
+                    srcTransfer = info?.videoTransfer ?: ""
+                    srcColorSpace = info?.videoColorSpace ?: ""
+                    srcDvProfile = info?.dvProfile ?: -1
                     initializePlayer(url, resumeMs)
                 }
             }
@@ -397,7 +405,8 @@ class PlayerActivity : Activity() {
 
         val labels = entries.map { (if (it.selected) "●  " else "○  ") + it.label }
         val listView = ListView(this)
-        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        // Custom row wraps long labels (no truncation) with a sensible min width.
+        listView.adapter = ArrayAdapter(this, R.layout.track_dialog_row, R.id.track_text, labels)
         listView.setOnItemClickListener { _, _, pos, _ ->
             val e = entries[pos]
             val params = p.trackSelectionParameters.buildUpon()
@@ -411,21 +420,8 @@ class PlayerActivity : Activity() {
             trackDialog?.dismiss()
         }
 
-        val dialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
-        trackDialog = dialog
-        dialog.show()
-        sizeDialogToContent(dialog, labels)
-    }
-
-    /** Widens [dialog] to fit the longest [labels] entry (clamped to the screen). */
-    private fun sizeDialogToContent(dialog: AlertDialog, labels: List<String>) {
-        val dm = resources.displayMetrics
-        val paint = Paint().apply { textSize = 18f * dm.scaledDensity }
-        val maxTextPx = labels.maxOfOrNull { paint.measureText(it) } ?: return
-        val padding = 96 * dm.density // row padding + dialog insets + selection glyph
-        val width = (maxTextPx + padding).toInt()
-            .coerceIn((320 * dm.density).toInt(), (dm.widthPixels * 0.92f).toInt())
-        dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+        trackDialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
+        trackDialog?.show()
     }
 
     private fun showChaptersDialog() {
@@ -610,7 +606,7 @@ class PlayerActivity : Activity() {
             row("frame rate", String.format("%.3f fps", v.frameRate))
         }
         row("video rate", bitrateStr(v?.bitrate ?: Format.NO_VALUE, mbps = true))
-        row("color", colorStr(v))
+        row("color", sourceColorStr())
         row("decoder", videoDecoderName)
         row("dropped", droppedFrames.toString())
 
@@ -649,21 +645,23 @@ class PlayerActivity : Activity() {
         else "${bitrate / 1000} kbps"
     }
 
-    private fun colorStr(f: Format?): String {
-        val ci = f?.colorInfo ?: return "SDR / unknown"
-        val transfer = when (ci.colorTransfer) {
-            C.COLOR_TRANSFER_ST2084 -> "PQ (HDR10/DV)"
-            C.COLOR_TRANSFER_HLG -> "HLG"
-            C.COLOR_TRANSFER_SDR -> "SDR"
-            else -> "transfer ${ci.colorTransfer}"
+    /** Colour/HDR from the server's ffprobe (authoritative; Media3's client-side
+     *  colorInfo is unreliable and often reports HDR sources as SDR). */
+    private fun sourceColorStr(): String {
+        val transfer = when {
+            srcTransfer == "smpte2084" -> "HDR10 (PQ)"
+            srcTransfer == "arib-std-b67" -> "HLG"
+            srcHdr -> "HDR"
+            else -> "SDR"
         }
-        val space = when (ci.colorSpace) {
-            C.COLOR_SPACE_BT2020 -> "BT.2020"
-            C.COLOR_SPACE_BT709 -> "BT.709"
-            C.COLOR_SPACE_BT601 -> "BT.601"
-            else -> "space ${ci.colorSpace}"
+        val space = when (srcColorSpace) {
+            "bt2020nc", "bt2020c" -> "BT.2020"
+            "bt709" -> "BT.709"
+            "" -> ""
+            else -> srcColorSpace
         }
-        return "$transfer / $space"
+        val dv = if (srcDvProfile >= 0) " · DV p$srcDvProfile" else ""
+        return if (space.isEmpty()) "$transfer$dv" else "$transfer / $space$dv"
     }
 
     private fun playbackStateName(state: Int?): String = when (state) {

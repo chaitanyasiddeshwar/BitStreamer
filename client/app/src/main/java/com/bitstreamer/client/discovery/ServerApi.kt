@@ -19,6 +19,12 @@ class ServerApi(private val baseUrl: String) {
         val chapters: List<Chapter>,
         val thumbnailsAvailable: Boolean,
         val storyboardAvailable: Boolean,
+        // Authoritative colour info from the server's ffprobe (Media3's client-side
+        // colorInfo is unreliable, so we trust the server here).
+        val videoHdr: Boolean,
+        val videoTransfer: String,
+        val videoColorSpace: String,
+        val dvProfile: Int,
     )
 
     /** Scrubbing-preview (storyboard) layout — see docs/THUMBNAILS.md. */
@@ -44,13 +50,18 @@ class ServerApi(private val baseUrl: String) {
                     val o = arr.optJSONObject(i) ?: return@mapNotNull null
                     Chapter(o.optLong("startMs", 0), o.optString("name", ""))
                 }
+            val video = json.optJSONObject("video")
             Info(
-                chapters,
-                json.optBoolean("thumbnails", false),
-                json.optBoolean("storyboard", false),
+                chapters = chapters,
+                thumbnailsAvailable = json.optBoolean("thumbnails", false),
+                storyboardAvailable = json.optBoolean("storyboard", false),
+                videoHdr = video?.optBoolean("hdr", false) ?: false,
+                videoTransfer = video?.optString("transfer", "") ?: "",
+                videoColorSpace = video?.optString("colorSpace", "") ?: "",
+                dvProfile = video?.optInt("dvProfile", -1) ?: -1,
             )
         } catch (_: Exception) {
-            Info(emptyList(), false, false)
+            Info(emptyList(), false, false, false, "", "", -1)
         }
     }
 
