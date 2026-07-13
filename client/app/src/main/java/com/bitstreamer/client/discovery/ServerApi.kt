@@ -16,6 +16,10 @@ class ServerApi(private val baseUrl: String) {
 
     /** Server metadata relevant to the player. */
     data class Info(
+        val name: String,
+        val file: String,
+        val sizeBytes: Long,
+        val mime: String,
         val chapters: List<Chapter>,
         val thumbnailsAvailable: Boolean,
         val storyboardAvailable: Boolean,
@@ -41,8 +45,8 @@ class ServerApi(private val baseUrl: String) {
         val sheetCount: Int,
     )
 
-    /** Reads /info: chapters, and whether thumbnails / scrub previews are available. */
-    fun getInfo(): Info {
+    /** Reads /info (full media metadata). Returns null if the server is unreachable. */
+    fun getInfo(): Info? {
         return try {
             val json = getJson("$baseUrl/info")
             val arr = json.optJSONArray("chapters")
@@ -53,6 +57,10 @@ class ServerApi(private val baseUrl: String) {
                 }
             val video = json.optJSONObject("video")
             Info(
+                name = json.optString("name", ""),
+                file = json.optString("file", ""),
+                sizeBytes = json.optLong("size", 0),
+                mime = json.optString("mime", ""),
                 chapters = chapters,
                 thumbnailsAvailable = json.optBoolean("thumbnails", false),
                 storyboardAvailable = json.optBoolean("storyboard", false),
@@ -63,7 +71,7 @@ class ServerApi(private val baseUrl: String) {
                 dvProfile = video?.optInt("dvProfile", -1) ?: -1,
             )
         } catch (_: Exception) {
-            Info(emptyList(), false, false, false, false, "", "", -1)
+            null
         }
     }
 

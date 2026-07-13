@@ -161,8 +161,9 @@ server/
    `255.255.255.255:46899` **and** the subnet-directed broadcast (computed from
    `WifiManager`/`ConnectivityManager` LinkProperties), 3 probes × 1 s timeout.
    Shows found servers (name + file from `/info`) in a focusable list; also a manual
-   IP entry row (fallback when broadcast is filtered) and a Retry button.
-   One result → auto-navigate after a beat.
+   IP entry row (fallback when broadcast is filtered) and a Retry button. Focusing a
+   server shows its full `/info` metadata as a table (file, size, container, video
+   HDR/DV/colour, chapter count, thumbnail/scrub-preview availability) before playing.
 2. **PlayerActivity**: full-screen Media3 `PlayerView`.
    - `MediaItem.fromUri("http://<ip>:46898/stream")`.
    - Controls (Fire TV remote): play/pause (center + play/pause key), FF/RW keys and
