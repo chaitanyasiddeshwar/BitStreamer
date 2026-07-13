@@ -21,6 +21,12 @@ client/.idea/
 *.keystore
 *.jks
 
+# Source art (kept locally; the processed assets live under client/app/src/main/res/)
+/icon.jpg
+/icon.png
+/banner.png
+/Gemini_Generated_Image_*.png
+
 # OS noise
 .DS_Store
 Thumbs.db
