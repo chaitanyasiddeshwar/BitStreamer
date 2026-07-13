@@ -29,7 +29,7 @@ apps can't intercept. That's why the stats overlay is on Menu.
 
 | Button | Action |
 |---|---|
-| Select / Play-Pause | Toggle play/pause |
+| Select / OK (center) | Toggle play/pause — works even with the controls hidden. (When a control icon is focused, it activates that icon instead.) |
 | D-pad left / right (on seek bar) | Scrub by the storyboard interval (default 30 s), landing on the next preview frame |
 | Rewind / Fast-forward | Seek −10 s / +30 s |
 | D-pad up (from seek bar) | Move to the play/pause row |

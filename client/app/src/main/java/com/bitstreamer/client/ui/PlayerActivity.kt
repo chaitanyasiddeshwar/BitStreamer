@@ -176,7 +176,7 @@ class PlayerActivity : Activity() {
         sv.setApplyEmbeddedStyles(true) // keep ASS/SSA as authored; SRT has none
         sv.setStyle(
             CaptionStyleCompat(
-                Color.WHITE,                        // text
+                0xFFC0C0C0.toInt(),                 // text: soft grey, easier on the eyes than white
                 0xB3000000.toInt(),                 // background hugging the text (~70% black)
                 Color.TRANSPARENT,                  // window: no full-width rectangle
                 CaptionStyleCompat.EDGE_TYPE_OUTLINE,
@@ -674,6 +674,26 @@ class PlayerActivity : Activity() {
         ) {
             playerView.hideController()
             return true
+        }
+        // Center/OK toggles play <-> pause during playback, unless a controller
+        // button (Audio/Subtitles/Chapters/Stats) is focused — then it must
+        // activate that button. Images have no play/pause. Swallow both DOWN and
+        // UP so no stray click reaches the controller.
+        if ((event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) &&
+            !isImage(currentTitle)
+        ) {
+            val focusedId = currentFocus?.id
+            val onControlButton = focusedId == R.id.btn_audio || focusedId == R.id.btn_subtitles ||
+                focusedId == R.id.btn_chapters || focusedId == R.id.btn_stats
+            val p = player
+            if (!onControlButton && p != null &&
+                p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED
+            ) {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    p.playWhenReady = !p.playWhenReady
+                }
+                return true
+            }
         }
         // Folder mode: RW/FF step to the previous/next file; images also use
         // D-pad left/right (they have no meaningful seek bar).
