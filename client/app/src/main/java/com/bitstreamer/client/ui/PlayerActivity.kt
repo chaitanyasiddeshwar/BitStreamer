@@ -211,11 +211,12 @@ class PlayerActivity : Activity() {
         val viewAspect = vw.toFloat() / vh
         var bottomFraction = SUBTITLE_BOTTOM_PADDING_FRACTION
         if (videoAspect > viewAspect) {
-            // Letterboxed: black bars top and bottom. Lift subtitles above the
-            // bottom bar, then keep the same in-picture margin.
+            // Letterboxed: black bars top and bottom. Sit the subtitles just
+            // above the bottom bar (a small margin into the picture) so they
+            // hug the picture's lower edge rather than floating up into it.
             val displayedVideoHeight = vw / videoAspect
             val barFraction = (vh - displayedVideoHeight) / 2f / vh
-            bottomFraction = barFraction + SUBTITLE_BOTTOM_PADDING_FRACTION
+            bottomFraction = maxOf(SUBTITLE_BOTTOM_PADDING_FRACTION, barFraction + SUBTITLE_LETTERBOX_MARGIN_FRACTION)
         }
         sv.setBottomPaddingFraction(bottomFraction.coerceIn(0f, 0.45f))
     }
@@ -417,8 +418,9 @@ class PlayerActivity : Activity() {
         // Sidecar subtitle files (movie1.srt etc.) become extra selectable text
         // tracks. ExoPlayer merges them via SingleSampleMediaSource, so they keep
         // their real MIME (SRT/ASS/...) and show up in the subtitle menu.
-        val subConfigs = externalSubs.map { s ->
+        val subConfigs = externalSubs.mapIndexed { i, s ->
             MediaItem.SubtitleConfiguration.Builder(Uri.parse(baseUrl + s.url))
+                .setId(EXT_SUB_ID_PREFIX + i) // marks it external so the menu can list it first
                 .setMimeType(s.mime)
                 .setLabel(s.label)
                 .apply { if (s.lang.isNotEmpty()) setLanguage(s.lang) }
@@ -541,6 +543,7 @@ class PlayerActivity : Activity() {
         val group: TrackGroup?, // null = "Off"
         val trackIndex: Int,
         val selected: Boolean,
+        val external: Boolean = false, // sidecar subtitle (listed first)
     )
 
     /**
@@ -563,16 +566,29 @@ class PlayerActivity : Activity() {
                 if (!group.isTrackSupported(i)) continue
                 val format = group.getTrackFormat(i)
                 val name = nameProvider.getTrackName(format)
+                val external = format.id?.startsWith(EXT_SUB_ID_PREFIX) == true
                 // For subtitles, tag the format (SRT/ASS/PGS/...) after the name.
                 val label = if (trackType == C.TRACK_TYPE_TEXT) {
                     "$name  [${subtitleTypeLabel(effectiveSubtitleMime(format))}]"
                 } else {
                     name
                 }
-                entries.add(TrackEntry(label, group.mediaTrackGroup, i, group.isTrackSelected(i)))
+                entries.add(TrackEntry(label, group.mediaTrackGroup, i, group.isTrackSelected(i), external))
             }
         }
         if (entries.isEmpty()) return
+
+        // Subtitles: list the on-disk sidecar tracks first (after "Off"), then the
+        // embedded ones — otherwise the merged externals always land at the end.
+        if (trackType == C.TRACK_TYPE_TEXT) {
+            val off = entries.filter { it.group == null }
+            val ext = entries.filter { it.group != null && it.external }
+            val emb = entries.filter { it.group != null && !it.external }
+            entries.clear()
+            entries.addAll(off)
+            entries.addAll(ext)
+            entries.addAll(emb)
+        }
 
         val labels = entries.map { (if (it.selected) "●  " else "○  ") + it.label }
         val listView = ListView(this)
@@ -938,10 +954,14 @@ class PlayerActivity : Activity() {
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         // Subtitle sizing/placement (fractions of the player-view height). Text
-        // size is a touch smaller than Media3's 0.0533 default; bottom padding is
-        // the in-picture margin above the video's bottom edge (see updateSubtitlePosition).
-        private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.042f
-        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.06f
+        // size is a touch smaller than Media3's 0.0533 default. Bottom padding is
+        // the margin from the screen bottom for un-letterboxed video; for
+        // letterboxed video, subtitles sit just above the bottom bar with only
+        // LETTERBOX_MARGIN of the picture below them (see updateSubtitlePosition).
+        private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.048f
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.045f
+        private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.01f
+        private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an
         // app switch). ~1-3s backoff, up to ~40s total before giving up.
         private const val MAX_AUDIO_RETRIES = 15
