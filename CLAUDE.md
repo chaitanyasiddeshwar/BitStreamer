@@ -27,6 +27,8 @@ Key docs:
   any audio code in the client
 - `docs/MEDIA3.md` — what Media3 is, which of its features we use, and the vetted menu of
   features we could adopt (with passthrough-hazard warnings)
+- `docs/REMOTE.md` — Fire TV remote buttons/keycodes, what's mappable, and the player's key map
+- `docs/THUMBNAILS.md` — chapter thumbnails + scrubbing storyboard (ffmpeg sidecar, HDR tonemapping)
 
 ## Tech stack (decided — see PROJECT_PLAN.md for rationale)
 

@@ -6,7 +6,7 @@ audio bitstreamed over HDMI to your TV or AV receiver.
 
 - `server/` — Go server, one self-contained binary, serves the file over HTTP with Range support
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
-- `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md)
+- `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md) · [remote key map](docs/REMOTE.md)
 
 ## Building
 
