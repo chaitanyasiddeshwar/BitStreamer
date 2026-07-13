@@ -57,7 +57,10 @@ class PlayerActivity : Activity() {
     private lateinit var playerView: PlayerView
     private lateinit var overlayView: TextView
     private lateinit var errorView: TextView
-    private var audioTrackDescription = "AudioTrack not initialized yet"
+    private var audioTrackDescription = "not initialized"
+    private var videoDecoderName = "?"
+    private var audioDecoderName = "?"
+    private var droppedFrames = 0
     private var api: ServerApi? = null
     private var resumeDialog: AlertDialog? = null
     private var chaptersDialog: AlertDialog? = null
@@ -99,6 +102,14 @@ class PlayerActivity : Activity() {
                 Thread { api?.postPosition(ms) }.start()
             }
             mainHandler.postDelayed(this, POSITION_REPORT_INTERVAL_MS)
+        }
+    }
+
+    // Refreshes the stats overlay ~1x/sec while it's visible.
+    private val statsRefresh = object : Runnable {
+        override fun run() {
+            updateOverlay()
+            if (overlayView.visibility == View.VISIBLE) mainHandler.postDelayed(this, 1000)
         }
     }
 
@@ -149,6 +160,7 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         mainHandler.removeCallbacks(reportPosition)
+        mainHandler.removeCallbacks(statsRefresh)
         resumeDialog?.dismiss()
         resumeDialog = null
         chaptersDialog?.dismiss()
@@ -215,6 +227,7 @@ class PlayerActivity : Activity() {
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
+                audioDecoderName = decoderName
                 RemoteLog.d(TAG, "audio DECODER in use: $decoderName (passthrough NOT active for this track)")
             }
 
@@ -224,7 +237,16 @@ class PlayerActivity : Activity() {
                 initializedTimestampMs: Long,
                 initializationDurationMs: Long,
             ) {
+                videoDecoderName = decoderName
                 RemoteLog.d(TAG, "video decoder: $decoderName")
+            }
+
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrameCount: Int,
+                elapsedMs: Long,
+            ) {
+                droppedFrames += droppedFrameCount
             }
 
             override fun onAudioSinkError(
@@ -299,6 +321,7 @@ class PlayerActivity : Activity() {
             showTrackDialog(C.TRACK_TYPE_TEXT, getString(R.string.dialog_subtitles_title), allowOff = true)
         }
         btnChapters?.setOnClickListener { showChaptersDialog() }
+        playerView.findViewById<ImageButton>(R.id.btn_stats)?.setOnClickListener { toggleStats() }
 
         // Seek-bar D-pad step = storyboard interval (default 30s), so each
         // left/right press lands on the next preview frame — and no more
@@ -521,10 +544,9 @@ class PlayerActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Menu (remote's ≡ button) toggles the stats-for-nerds overlay.
         if (event.keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
-            overlayView.visibility =
-                if (overlayView.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            updateOverlay()
+            toggleStats()
             return true
         }
         // Back with the controller overlay up: dismiss the overlay, don't leave
@@ -554,18 +576,57 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun updateOverlay() {
-        if (overlayView.visibility != View.VISIBLE) return
-        val audioFormat = player?.audioFormat
-        val videoFormat = player?.videoFormat
-        overlayView.text = buildString {
-            append("file audio:  ").append(describeFormat(audioFormat)).append('\n')
-            append("AudioTrack:  ").append(audioTrackDescription).append('\n')
-            append("sink caps:   ").append(AudioCaps.describe(this@PlayerActivity)).append('\n')
-            append("video:       ").append(describeFormat(videoFormat))
+    private fun toggleStats() {
+        val show = overlayView.visibility != View.VISIBLE
+        overlayView.visibility = if (show) View.VISIBLE else View.GONE
+        mainHandler.removeCallbacks(statsRefresh)
+        if (show) {
+            updateOverlay()
+            mainHandler.postDelayed(statsRefresh, 1000)
         }
     }
 
+    /** Renders the "stats for nerds" table (Name  Value), refreshed while visible. */
+    private fun updateOverlay() {
+        if (overlayView.visibility != View.VISIBLE) return
+        val p = player
+        val v = p?.videoFormat
+        val a = p?.audioFormat
+        val sb = StringBuilder("── STATS FOR NERDS ──\n")
+        fun row(name: String, value: String) {
+            if (value.isNotEmpty()) sb.append(name.padEnd(11)).append(value).append('\n')
+        }
+
+        row("file", intent.getStringExtra(EXTRA_TITLE) ?: "")
+        row("state", playbackStateName(p?.playbackState) + if (p?.isPlaying == true) " (playing)" else " (paused)")
+        if (p != null && p.duration > 0) {
+            row("position", "${formatTime(p.currentPosition)} / ${formatTime(p.duration)}  ${p.bufferedPercentage}% buf")
+        }
+
+        sb.append("— video —\n")
+        row("codec", codecStr(v))
+        if (v != null && v.width != Format.NO_VALUE) row("resolution", "${v.width}x${v.height}")
+        if (v != null && v.frameRate != Format.NO_VALUE.toFloat() && v.frameRate > 0) {
+            row("frame rate", String.format("%.3f fps", v.frameRate))
+        }
+        row("video rate", bitrateStr(v?.bitrate ?: Format.NO_VALUE, mbps = true))
+        row("color", colorStr(v))
+        row("decoder", videoDecoderName)
+        row("dropped", droppedFrames.toString())
+
+        sb.append("— audio —\n")
+        row("codec", codecStr(a))
+        if (a != null && a.channelCount != Format.NO_VALUE) row("channels", "${a.channelCount}")
+        if (a != null && a.sampleRate != Format.NO_VALUE) row("sample rate", "${a.sampleRate} Hz")
+        row("audio rate", bitrateStr(a?.bitrate ?: Format.NO_VALUE, mbps = false))
+        row("language", a?.language ?: "")
+        row("output", audioTrackDescription)
+        row("HDMI caps", AudioCaps.describe(this))
+
+        overlayView.text = sb.toString()
+    }
+
+    /** Compact one-line format description for RemoteLog. */
     private fun describeFormat(format: Format?): String {
         if (format == null) return "none"
         val channels =
@@ -574,6 +635,43 @@ class PlayerActivity : Activity() {
             if (format.sampleRate != Format.NO_VALUE) " ${format.sampleRate}Hz" else ""
         val size = if (format.width != Format.NO_VALUE) " ${format.width}x${format.height}" else ""
         return "${format.sampleMimeType}$channels$rate$size"
+    }
+
+    private fun codecStr(f: Format?): String {
+        if (f == null) return "none"
+        val mime = f.sampleMimeType ?: "?"
+        return if (f.codecs != null) "$mime (${f.codecs})" else mime
+    }
+
+    private fun bitrateStr(bitrate: Int, mbps: Boolean): String {
+        if (bitrate == Format.NO_VALUE || bitrate <= 0) return ""
+        return if (mbps) String.format("%.1f Mbps", bitrate / 1_000_000.0)
+        else "${bitrate / 1000} kbps"
+    }
+
+    private fun colorStr(f: Format?): String {
+        val ci = f?.colorInfo ?: return "SDR / unknown"
+        val transfer = when (ci.colorTransfer) {
+            C.COLOR_TRANSFER_ST2084 -> "PQ (HDR10/DV)"
+            C.COLOR_TRANSFER_HLG -> "HLG"
+            C.COLOR_TRANSFER_SDR -> "SDR"
+            else -> "transfer ${ci.colorTransfer}"
+        }
+        val space = when (ci.colorSpace) {
+            C.COLOR_SPACE_BT2020 -> "BT.2020"
+            C.COLOR_SPACE_BT709 -> "BT.709"
+            C.COLOR_SPACE_BT601 -> "BT.601"
+            else -> "space ${ci.colorSpace}"
+        }
+        return "$transfer / $space"
+    }
+
+    private fun playbackStateName(state: Int?): String = when (state) {
+        Player.STATE_IDLE -> "idle"
+        Player.STATE_BUFFERING -> "buffering"
+        Player.STATE_READY -> "ready"
+        Player.STATE_ENDED -> "ended"
+        else -> "?"
     }
 
     private fun showError(error: PlaybackException) {

@@ -15,11 +15,15 @@ Fire TV; this documents why, and the server-side ffmpeg approach that replaced i
   and shows a compact name + timestamp list.
 - ffmpeg is a **user-supplied sidecar** (not bundled): drop `ffmpeg.exe` next to
   `bitstreamer.exe` to enable thumbnails; without it, everything else works unchanged.
-- **HDR tonemapping**: HDR sources (PQ/HLG, detected from the MKV's
-  `TransferCharacteristics` via `hdr.go`) are tonemapped BT.2020→BT.709 with ffmpeg's
-  `zscale`/`tonemap` filters (`ffmpeg.go`), so thumbnails aren't washed out. Applies to
-  both chapter thumbnails and storyboard tiles. If the ffmpeg build lacks `zscale`
-  (libzimg), it falls back to plain extraction (washed out, but present) and logs once.
+- **HDR tonemapping**: HDR sources are tonemapped BT.2020→BT.709 with ffmpeg's
+  `zscale`/`tonemap` filters (`ffmpeg.go`) so thumbnails aren't washed out — for both
+  chapter thumbnails and storyboard tiles. Detection is via **ffprobe** (`probe.go`),
+  which reads the real stream's colour transfer (PQ/HLG) and the Dolby Vision profile;
+  it falls back to the MKV container tags (`hdr.go`) if ffprobe isn't present. Works for
+  HDR10, HDR10+, and Dolby Vision profiles with a PQ/HLG base (7/8.x); DV **profile 5**
+  can't be colour-accurate without DV RPU processing (an ffmpeg/libplacebo limitation).
+  If the ffmpeg build lacks `zscale` (libzimg), it falls back to plain extraction (washed
+  out, but present) and logs once. The detected colour info is printed at startup.
 - **Eager generation**: on startup the server pre-generates all chapter thumbnails in the
   background (`thumbnailer.warm()`, concurrency-capped), so the chapter menu is instant the
   first time it's opened instead of triggering ffmpeg on demand. On-demand generation

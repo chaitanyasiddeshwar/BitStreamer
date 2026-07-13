@@ -301,6 +301,10 @@ Also test: seek during playback ×10, pause >5 min then resume, server killed mi
   on-device extraction proved impossible on Fire TV; see [THUMBNAILS.md](THUMBNAILS.md)
 - **Scrubbing previews** (`storyboard.go` sprite sheets + `/storyboard*`, client scrub
   overlay), `--interval` secs (default 30), which is also the client seek-bar step
+- **HDR tonemapping** for thumbnails (ffprobe detection in `probe.go`, zscale/tonemap in
+  `ffmpeg.go`) — HDR10/HDR10+/Dolby Vision (PQ base); see [THUMBNAILS.md](THUMBNAILS.md)
+- **"Stats for nerds" overlay** — Menu button / Stats icon toggles a left-side table of
+  codec, resolution, frame rate, HDR/colour, audio passthrough, dropped frames, buffering
 
 ## 9. Future candidates
 

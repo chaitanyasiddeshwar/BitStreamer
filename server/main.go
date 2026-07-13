@@ -88,6 +88,9 @@ func main() {
 			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 		}
 	}
+	if app.probeSummary != "" {
+		fmt.Printf("Video: %s\n", app.probeSummary)
+	}
 	if app.story.enabled() {
 		fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
 		go app.story.generate()

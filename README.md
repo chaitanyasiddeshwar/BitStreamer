@@ -122,8 +122,9 @@ for Downloader when prompted).
 
 Open BitStreamer on the Fire TV — it finds the server automatically and plays. Remote:
 center/play toggles pause; D-pad left/right on the seek bar scrubs; RW/FF seek; Up focuses
-play/pause; Down opens the Audio / Subtitles / Chapters icons; Menu toggles the audio debug
-overlay; Back hides the controls, then exits. If you stopped mid-movie, the player offers to
+play/pause; Down opens the Audio / Subtitles / Chapters / Stats icons; the **Menu** button
+(or the Stats icon) toggles a "stats for nerds" overlay (codecs, resolution, frame rate,
+HDR/colour, audio passthrough, dropped frames…); Back hides the controls, then exits. If you stopped mid-movie, the player offers to
 resume where you left off (per device, remembered by the server until it's started with a
 different file).
 
