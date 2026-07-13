@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os/exec"
@@ -9,7 +10,21 @@ import (
 	"sync"
 )
 
-var hdrFallbackOnce sync.Once
+var (
+	zscaleOnce   sync.Once
+	zscaleOK     bool
+	noZscaleOnce sync.Once
+)
+
+// hasZscale reports whether this ffmpeg build has the zscale filter (libzimg),
+// which the HDR tonemap chain needs. Detected once from `ffmpeg -filters`.
+func hasZscale(ffmpegPath string) bool {
+	zscaleOnce.Do(func() {
+		out, err := exec.Command(ffmpegPath, "-hide_banner", "-filters").Output()
+		zscaleOK = err == nil && bytes.Contains(out, []byte("zscale"))
+	})
+	return zscaleOK
+}
 
 // videoFilter builds the -vf chain for a thumbnail frame scaled to [width].
 // For HDR sources it tonemaps BT.2020/PQ (or HLG) down to BT.709 SDR so colours
@@ -25,15 +40,21 @@ func videoFilter(width int, hdr bool) string {
 }
 
 // extractFrame writes a single JPEG at [seekSec] into [outPath] using a fast
-// keyframe seek. For HDR it tonemaps; if that fails (e.g. an ffmpeg without
-// zscale) it falls back to a plain extraction so a thumbnail is still produced
-// (washed out, but present).
+// keyframe seek. HDR frames are tonemapped when this ffmpeg has zscale; if it
+// doesn't, or a particular frame's HDR pass fails (e.g. a bad seek), it falls
+// back to a plain extraction so a thumbnail is still produced.
 func extractFrame(ffmpegPath, mediaPath string, seekSec float64, width, quality int, hdr bool, outPath string) error {
-	err := runFFmpegExtract(ffmpegPath, mediaPath, seekSec, width, quality, hdr, outPath)
-	if err != nil && hdr {
-		hdrFallbackOnce.Do(func() {
-			log.Printf("HDR tonemap failed (ffmpeg may lack zscale/libzimg); using plain extraction — thumbnails may look washed out")
+	useHdr := hdr && hasZscale(ffmpegPath)
+	if hdr && !useHdr {
+		noZscaleOnce.Do(func() {
+			log.Printf("HDR tonemapping unavailable: this ffmpeg has no zscale filter " +
+				"(build with --enable-libzimg); thumbnails will not be tonemapped")
 		})
+	}
+	err := runFFmpegExtract(ffmpegPath, mediaPath, seekSec, width, quality, useHdr, outPath)
+	if err != nil && useHdr {
+		// This frame's HDR pass failed (the real error is in the ffmpeg log);
+		// fall back to a plain extraction for this one frame.
 		return runFFmpegExtract(ffmpegPath, mediaPath, seekSec, width, quality, false, outPath)
 	}
 	return err

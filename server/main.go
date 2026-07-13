@@ -98,6 +98,13 @@ func main() {
 	if app.probe.summary != "" {
 		fmt.Printf("Video: %s\n", app.probe.summary)
 	}
+	if app.probe.isHDR && app.thumbs.ffmpegPath != "" {
+		if hasZscale(app.thumbs.ffmpegPath) {
+			fmt.Println("HDR thumbnails: tonemapped to SDR (ffmpeg zscale present)")
+		} else {
+			fmt.Println("HDR thumbnails: not tonemapped (this ffmpeg has no zscale; build with --enable-libzimg)")
+		}
+	}
 	if app.thumbs.available() || app.story.enabled() {
 		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
 	}
