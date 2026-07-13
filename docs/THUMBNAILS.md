@@ -80,16 +80,32 @@ ffmpeg -i <file> -vf "fps=1/<T>,scale=240:-2,tile=10x10" -q:v 5 <cache>/sb_%03d.
   overlay `ImageView` positioned above the scrubber thumb.
 - Cache sheet bitmaps in an `LruCache`; only a couple are ever needed at once.
 
-### Cost & the one real risk
+### Generation: fast keyframe seeks (not a full decode)
 
-The `fps` filter makes ffmpeg **decode the whole video** to sample frames. For a 2-hour 4K
-HDR HEVC file that can take **several minutes** of CPU at startup (background, so playback
-isn't blocked — the preview simply isn't available until it finishes). Mitigations:
-- Coarser interval (T=10s → ~720 tiles for a 2h film; T=5s doubles cost and smoothness).
-- `scale` small (decode cost is dominated by decode, not scale, but keeps sheets small).
-- Show a "generating previews…" state; fall back to no-preview scrubbing until ready.
-- Possible future optimization: keyframe-only sampling (`-skip_frame nokey`) is far faster
-  but gives irregular spacing — needs a manifest of actual timestamps, more client work.
+An early version used one `fps` filter pass, which makes ffmpeg **decode the whole video** —
+minutes of CPU for a 2-hour 4K file. The shipped version instead does a **fast keyframe seek
+per interval**: `ffmpeg -ss <i*interval> -i file -frames:v 1` uses the container index to jump
+to the nearest keyframe and decode almost nothing. These run in parallel (capped), then Go
+tiles the frames into sprite sheets (`image/draw`, stdlib). For a 2h film at 30s that's ~240
+targeted seeks — seconds, not minutes — and every tile is effectively a keyframe.
+
+### Why fixed intervals (not keyframe-driven variable spacing)
+
+Considered letting the keyframes themselves set the spacing (extract *every* I-frame at its
+natural position). Rejected — it's worse on every axis that matters here:
+- **Slower to generate**, not faster: grabbing all keyframes needs a full-file pass
+  (`-skip_frame nokey` still demuxes the whole container and decodes every I-frame, often
+  1000s). Targeted seeks at fixed intervals touch far less of the file.
+- **Unpredictable, unbounded count**: keyframe density varies wildly by encode; a fast-cut
+  film could yield thousands of tiles (dozens of sheets), a static one very few.
+- **Complex client**: irregular timestamps break the trivial `tileIndex = time/interval`
+  mapping — you'd need a per-tile timestamp manifest and a nearest-tile binary search.
+- **Marginal UX gain**: for scrubbing, a fixed grid is plenty; nobody needs a preview at
+  every scene cut.
+
+Fixed interval + keyframe seek already gives keyframe-quality frames with fast, bounded,
+simple generation. Want finer granularity? Lower `--interval` (e.g. `--interval 10`) — it
+stays fast because of the seek approach.
 
 ### Effort
 

@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"image"
-	_ "image/jpeg" // register JPEG decoder for image.DecodeConfig
+	"image/draw"
+	"image/jpeg"
 	"log"
 	"os"
 	"os/exec"
@@ -11,7 +12,7 @@ import (
 	"sync"
 )
 
-// tilesPerSheet is the grid packed into each sprite sheet (cols*rows).
+// Sprite-sheet grid: cols*rows tiles per sheet.
 const (
 	sbCols  = 10
 	sbRows  = 10
@@ -19,16 +20,18 @@ const (
 )
 
 // storyboard produces a dense grid of frame thumbnails ("trickplay") for
-// scrubbing previews: one frame every intervalMs, tiled into sprite-sheet JPEGs
-// with ffmpeg. Generated once at startup into a per-session temp dir and deleted
-// on shutdown — see docs/THUMBNAILS.md. Best-effort: unavailable without ffmpeg
-// or a known duration.
+// scrubbing previews: one frame every intervalMs, packed into sprite-sheet
+// JPEGs. Frames are grabbed with fast keyframe seeks (ffmpeg -ss per interval,
+// which decodes almost nothing — not a full-file decode) and tiled in Go.
+// Generated at startup into a per-session temp dir, deleted on shutdown.
+// See docs/THUMBNAILS.md. Best-effort: unavailable without ffmpeg or a duration.
 type storyboard struct {
 	ffmpegPath string
 	mediaPath  string
 	durationMs int64
 	intervalMs int64
 	cacheDir   string
+	sem        chan struct{} // caps concurrent ffmpeg seeks
 
 	mu         sync.RWMutex
 	ready      bool
@@ -49,6 +52,7 @@ func newStoryboard(mediaPath string, durationMs, intervalMs int64) *storyboard {
 		durationMs: durationMs,
 		intervalMs: intervalMs,
 		cacheDir:   dir,
+		sem:        make(chan struct{}, 4),
 	}
 }
 
@@ -63,72 +67,133 @@ func (s *storyboard) isReady() bool {
 	return s.ready
 }
 
-// generate runs ffmpeg to produce all sprite sheets, then measures a sheet to
-// record tile dimensions. Call in the background at startup.
+// generate grabs one keyframe per interval (parallel, capped) and packs them
+// into sprite sheets. Call in the background at startup.
 func (s *storyboard) generate() {
 	if !s.enabled() {
 		return
 	}
-	intervalSec := float64(s.intervalMs) / 1000.0
-	pattern := filepath.Join(s.cacheDir, "sb_%03d.jpg")
-
-	// One pass: sample a frame every interval, scale, pack into cols x rows tiles.
-	vf := fmt.Sprintf("fps=1/%.3f,scale=%d:-2,tile=%dx%d", intervalSec, sbTileW, sbCols, sbRows)
-	cmd := exec.Command(s.ffmpegPath,
-		"-nostdin", "-loglevel", "error",
-		"-i", s.mediaPath,
-		"-vf", vf,
-		"-q:v", "5",
-		"-y", pattern,
-	)
-	if err := cmd.Run(); err != nil {
-		log.Printf("storyboard generation failed: %v", err)
-		return
-	}
-
-	sheets, _ := filepath.Glob(filepath.Join(s.cacheDir, "sb_*.jpg"))
-	if len(sheets) == 0 {
-		log.Printf("storyboard: ffmpeg produced no sheets")
-		return
-	}
-	tileW, tileH := s.measureTile(sheets[0])
-	if tileW == 0 {
-		return
-	}
-
 	tileCount := int((s.durationMs + s.intervalMs - 1) / s.intervalMs)
+	if tileCount <= 0 {
+		return
+	}
+	tileDir := filepath.Join(s.cacheDir, "tiles")
+	if err := os.MkdirAll(tileDir, 0o755); err != nil {
+		log.Printf("storyboard: %v", err)
+		return
+	}
+
+	// 1. Extract each interval's frame with a fast keyframe seek.
+	var wg sync.WaitGroup
+	for i := 0; i < tileCount; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			s.sem <- struct{}{}
+			defer func() { <-s.sem }()
+			s.extractTile(idx, tileDir)
+		}(i)
+	}
+	wg.Wait()
+
+	// 2. Measure tile dimensions from the first frame produced.
+	tileW, tileH := s.firstTileSize(tileDir, tileCount)
+	if tileW == 0 {
+		log.Printf("storyboard: no frames produced")
+		return
+	}
+
+	// 3. Pack into sprite sheets, then drop the individual tiles.
+	sheetCount := (tileCount + sbCols*sbRows - 1) / (sbCols * sbRows)
+	for sheet := 0; sheet < sheetCount; sheet++ {
+		if err := s.packSheet(sheet, tileDir, tileW, tileH); err != nil {
+			log.Printf("storyboard sheet %d: %v", sheet, err)
+		}
+	}
+	os.RemoveAll(tileDir)
 
 	s.mu.Lock()
 	s.tileWidth = tileW
 	s.tileHeight = tileH
-	s.sheetCount = len(sheets)
 	s.tileCount = tileCount
+	s.sheetCount = sheetCount
 	s.ready = true
 	s.mu.Unlock()
-	log.Printf("storyboard ready: %d tiles across %d sheets (%dx%d px, every %ds)",
-		tileCount, len(sheets), tileW, tileH, s.intervalMs/1000)
+	log.Printf("storyboard ready: %d tiles across %d sheets (%dx%d px, every %ds, keyframe seeks)",
+		tileCount, sheetCount, tileW, tileH, s.intervalMs/1000)
 }
 
-// measureTile reads a sheet's pixel size (without decoding it fully) and divides
-// by the grid to get per-tile dimensions.
-func (s *storyboard) measureTile(sheetPath string) (int, int) {
-	f, err := os.Open(sheetPath)
-	if err != nil {
-		return 0, 0
+// extractTile grabs the frame near tile idx's timestamp. Fast: -ss before -i is
+// an input (keyframe) seek, and -frames:v 1 outputs a single frame. A failure
+// (e.g. seeking past the end) just leaves a gap — that sheet cell stays black.
+func (s *storyboard) extractTile(idx int, tileDir string) {
+	seekSec := float64(int64(idx)*s.intervalMs) / 1000.0
+	out := filepath.Join(tileDir, fmt.Sprintf("t_%05d.jpg", idx))
+	cmd := exec.Command(s.ffmpegPath,
+		"-nostdin", "-loglevel", "error",
+		"-ss", fmt.Sprintf("%.3f", seekSec),
+		"-i", s.mediaPath,
+		"-frames:v", "1",
+		"-vf", fmt.Sprintf("scale=%d:-2", sbTileW),
+		"-q:v", "5",
+		"-f", "mjpeg",
+		"-y", out,
+	)
+	if err := cmd.Run(); err != nil {
+		os.Remove(out)
 	}
-	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
-	if err != nil {
-		return 0, 0
+}
+
+// firstTileSize returns the pixel size of the first extracted tile (all tiles
+// share it — same source video).
+func (s *storyboard) firstTileSize(tileDir string, tileCount int) (int, int) {
+	for i := 0; i < tileCount; i++ {
+		f, err := os.Open(filepath.Join(tileDir, fmt.Sprintf("t_%05d.jpg", i)))
+		if err != nil {
+			continue
+		}
+		cfg, _, err := image.DecodeConfig(f)
+		f.Close()
+		if err == nil {
+			return cfg.Width, cfg.Height
+		}
 	}
-	return cfg.Width / sbCols, cfg.Height / sbRows
+	return 0, 0
+}
+
+// packSheet draws up to cols*rows tiles into one sprite-sheet JPEG. Missing
+// tiles leave black cells.
+func (s *storyboard) packSheet(sheet int, tileDir string, tileW, tileH int) error {
+	canvas := image.NewRGBA(image.Rect(0, 0, sbCols*tileW, sbRows*tileH))
+	base := sheet * sbCols * sbRows
+	for j := 0; j < sbCols*sbRows; j++ {
+		f, err := os.Open(filepath.Join(tileDir, fmt.Sprintf("t_%05d.jpg", base+j)))
+		if err != nil {
+			continue
+		}
+		tile, err := jpeg.Decode(f)
+		f.Close()
+		if err != nil {
+			continue
+		}
+		col := j % sbCols
+		row := j / sbCols
+		r := image.Rect(col*tileW, row*tileH, col*tileW+tileW, row*tileH+tileH)
+		draw.Draw(canvas, r, tile, image.Point{}, draw.Src)
+	}
+	out, err := os.Create(filepath.Join(s.cacheDir, fmt.Sprintf("sb_%03d.jpg", sheet+1)))
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return jpeg.Encode(out, canvas, &jpeg.Options{Quality: 80})
 }
 
 func (s *storyboard) sheetPath(n int) (string, bool) {
 	if !s.isReady() || n < 0 || n >= s.sheetCount {
 		return "", false
 	}
-	return filepath.Join(s.cacheDir, fmt.Sprintf("sb_%03d.jpg", n+1)), true // ffmpeg numbers from 1
+	return filepath.Join(s.cacheDir, fmt.Sprintf("sb_%03d.jpg", n+1)), true // sheets numbered from 1
 }
 
 // manifest describes the layout so the client can map a scrub time to a tile.
