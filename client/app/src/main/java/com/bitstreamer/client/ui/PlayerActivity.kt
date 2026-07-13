@@ -3,6 +3,7 @@ package com.bitstreamer.client.ui
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -29,9 +30,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.DefaultTrackNameProvider
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.TimeBar
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
@@ -151,6 +154,37 @@ class PlayerActivity : Activity() {
         scrubPreview = findViewById(R.id.scrub_preview)
         scrubPreviewImage = findViewById(R.id.scrub_preview_image)
         scrubPreviewTime = findViewById(R.id.scrub_preview_time)
+        styleSubtitles()
+    }
+
+    /**
+     * Styles text subtitles (SRT and other text cues). By default Media3 defers
+     * to the Fire TV system caption style, which is white text on an opaque
+     * black window — the full-width black rectangle. We replace that with an
+     * Emby-like look: white text on a semi-transparent black background that
+     * hugs the text (no window box), plus a thin black outline so it stays
+     * legible over bright/HDR scenes. Bitmap subtitles (PGS/VOBSUB) are images
+     * and can't be restyled; embedded ASS/SSA styling is preserved.
+     *
+     * To tweak: `backgroundColor` is the box that hugs the text (set to
+     * Color.TRANSPARENT for outline-only, no box); `windowColor` is the
+     * full-width rectangle (keep transparent); `edgeType` can be
+     * EDGE_TYPE_NONE / _OUTLINE / _DROP_SHADOW. See docs/MEDIA3.md.
+     */
+    private fun styleSubtitles() {
+        val sv = playerView.subtitleView ?: return
+        sv.setApplyEmbeddedStyles(true) // keep ASS/SSA as authored; SRT has none
+        sv.setStyle(
+            CaptionStyleCompat(
+                Color.WHITE,                        // text
+                0xB3000000.toInt(),                 // background hugging the text (~70% black)
+                Color.TRANSPARENT,                  // window: no full-width rectangle
+                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                Color.BLACK,                        // outline colour
+                null,                               // default typeface
+            )
+        )
+        sv.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION)
     }
 
     override fun onStart() {

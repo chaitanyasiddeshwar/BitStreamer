@@ -71,8 +71,18 @@ threaten the bitstream-audio guarantee (see AUDIO_PASSTHROUGH.md §4 before touc
 3. **Playlists / queue**. `Player` natively handles `MediaItem` lists with gapless
    transitions, `seekToNextMediaItem()`, etc. Pairs with a server change (serve a
    directory instead of one file) for a "play the season" experience.
-4. **System caption styling**. `SubtitleView.setUserDefaultStyle()` honors the Android
-   captioning settings (size/color set in Fire TV accessibility). Nearly free polish.
+4. **Caption styling** *(done)*. Text subtitles (SRT and other text cues) are styled via
+   `playerView.subtitleView.setStyle(CaptionStyleCompat(...))` in
+   `PlayerActivity.styleSubtitles()`. The default (Fire TV system caption style) is white
+   text on an opaque black *window* — a full-width black rectangle. We replace it with an
+   Emby-like look: white text, a semi-transparent black background that hugs the text
+   (`backgroundColor`, no window box), and a thin black outline (`EDGE_TYPE_OUTLINE`) for
+   legibility over bright/HDR scenes. The knobs are fixed but cover the useful space:
+   foreground/background/window colours, edge type (none/outline/drop-shadow/raised/
+   depressed) + colour, typeface, `setFractionalTextSize`, and `setBottomPaddingFraction`.
+   Bitmap subtitles (PGS/VOBSUB) are images and can't be restyled; embedded ASS/SSA
+   styling is preserved (`setApplyEmbeddedStyles(true)`). For fully arbitrary rendering
+   you'd replace `SubtitleView` — out of scope; the `CaptionStyleCompat` knobs suffice.
 5. **Playback-position UX extras**: `setSeekParameters(SeekParameters.CLOSEST_SYNC)`
    for snappier seeks on big HEVC files; custom `LoadControl` to size buffers for
    high-bitrate remuxes over Wi-Fi (default is tuned for adaptive streaming).
