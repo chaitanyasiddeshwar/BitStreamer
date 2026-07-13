@@ -153,6 +153,35 @@ hand-packing IEC 61937 bursts into a multichannel PCM track ("IEC packer") — f
 device-specific, and the only known way on Fire TV. If ever attempted, it's a new sink
 mode behind a setting, not a change to the core-extraction path.
 
+## 8. Recovering from transient audio-device loss (app switch)
+
+Switching away and back — **Home → open another app → return to BitStreamer** — can leave
+the passthrough output momentarily uncreatable. The symptom in `client-logs.txt`:
+
+```
+audio sink error: AudioSink$InitializationException: AudioTrack init failed ... audio/eac3
+  Caused by: UnsupportedOperationException: Cannot create AudioTrack
+player error ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+playback state: 1            # IDLE — wedged
+```
+
+(You may also see `AudioTrack write failed: -6`, i.e. `ERROR_DEAD_OBJECT` — the HAL object
+died under the app.) The HDMI/AVR audio route hands back to the app before it's actually
+ready for a compressed-passthrough `AudioTrack`, so `AudioTrack.Builder.build()` throws.
+The device frees up within a few seconds, but ExoPlayer treats the error as terminal and
+stays in `STATE_IDLE` — previously the player was stuck until Fire OS killed the app.
+
+Fix (`PlayerActivity`): on `onPlayerError`, if the code is `ERROR_CODE_AUDIO_TRACK_INIT_FAILED`
+or `ERROR_CODE_AUDIO_TRACK_WRITE_FAILED` (`isRecoverableAudioError`), call `player.prepare()`
+again with a ~1–3 s backoff (`MAX_AUDIO_RETRIES` attempts, ~40 s total) instead of showing
+the error. `prepare()` retries from the retained position and keeps `playWhenReady`, so the
+resume point and the resume dialog choice both survive. The retry budget resets on
+`STATE_READY` (and each fresh `initializePlayer`), and the pending retry is cancelled in
+`onStop`/`releasePlayer`. Only after the budget is exhausted does the error banner show.
+
+Not every app-switch triggers this — it depends on the AVR/eARC handshake timing — but when
+it does, the player now heals itself rather than needing a force-kill.
+
 Diagnostics: everything the audio pipeline decides is logged via `RemoteLog`, which the
 server appends to `client-logs.txt` next to `bitstreamer.exe` (`POST /log`). For a DTS
 issue, that file answers: what mime the extractor produced, what the sink chose

@@ -96,6 +96,18 @@ class PlayerActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Recovery for transient HDMI audio-device failures. Switching apps (Home ->
+    // another app -> back) can leave the passthrough AudioTrack momentarily
+    // uncreatable ("Cannot create AudioTrack" / DEAD_OBJECT). The device usually
+    // frees up within a few seconds, so we re-prepare with backoff instead of
+    // wedging in IDLE. See docs/AUDIO_PASSTHROUGH.md.
+    private var audioRetryCount = 0
+    private val retryPlayback = Runnable {
+        val p = player ?: return@Runnable
+        RemoteLog.d(TAG, "re-preparing after audio-device error (attempt $audioRetryCount)")
+        p.prepare() // resumes from the retained position; keeps playWhenReady
+    }
+
     private val scrubListener = object : TimeBar.OnScrubListener {
         override fun onScrubStart(timeBar: TimeBar, position: Long) = showScrubPreview(position)
         override fun onScrubMove(timeBar: TimeBar, position: Long) = showScrubPreview(position)
@@ -186,6 +198,7 @@ class PlayerActivity : Activity() {
         super.onStop()
         mainHandler.removeCallbacks(reportPosition)
         mainHandler.removeCallbacks(statsRefresh)
+        mainHandler.removeCallbacks(retryPlayback)
         resumeDialog?.dismiss()
         resumeDialog = null
         chaptersDialog?.dismiss()
@@ -212,6 +225,7 @@ class PlayerActivity : Activity() {
 
     private fun initializePlayer(url: String, resumeMs: Long) {
         errorView.visibility = View.GONE
+        audioRetryCount = 0
         RemoteLog.d(TAG, "opening $url (stored resume position: ${resumeMs}ms)")
         RemoteLog.d(TAG, "HDMI sink caps: ${AudioCaps.describe(this)}")
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
@@ -293,6 +307,15 @@ class PlayerActivity : Activity() {
         })
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                if (isRecoverableAudioError(error) && audioRetryCount < MAX_AUDIO_RETRIES) {
+                    audioRetryCount++
+                    val delay = (RETRY_BASE_MS * audioRetryCount).coerceAtMost(RETRY_MAX_MS)
+                    RemoteLog.d(TAG, "recoverable audio-device error ${error.errorCodeName} " +
+                        "(${error.cause?.message}); retry $audioRetryCount/$MAX_AUDIO_RETRIES in ${delay}ms")
+                    mainHandler.removeCallbacks(retryPlayback)
+                    mainHandler.postDelayed(retryPlayback, delay)
+                    return
+                }
                 RemoteLog.d(TAG, "player error ${error.errorCodeName}: ${Log.getStackTraceString(error)}")
                 showError(error)
             }
@@ -304,6 +327,12 @@ class PlayerActivity : Activity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 RemoteLog.d(TAG, "playback state: $playbackState")
+                if (playbackState == Player.STATE_READY) {
+                    // Recovered (or a clean start): drop the retry budget and any
+                    // stale error banner from a prior failed attempt.
+                    audioRetryCount = 0
+                    errorView.visibility = View.GONE
+                }
                 if (playbackState == Player.STATE_ENDED) {
                     Thread { api?.postPosition(0) }.start() // finished: clear resume point
                 }
@@ -584,10 +613,17 @@ class PlayerActivity : Activity() {
     }
 
     private fun releasePlayer() {
+        mainHandler.removeCallbacks(retryPlayback)
         playerView.player = null
         player?.release()
         player = null
     }
+
+    // Audio-device errors that a re-prepare can recover from: on Fire TV the
+    // passthrough AudioTrack can briefly fail to (re)create after an app switch.
+    private fun isRecoverableAudioError(error: PlaybackException): Boolean =
+        error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Menu (remote's ≡ button) toggles the stats-for-nerds overlay.
@@ -760,6 +796,11 @@ class PlayerActivity : Activity() {
         private const val IMAGE_DURATION_MS = 3_600_000L // 1h: image stays until user navigates
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
+        // Audio-device error recovery (transient passthrough failures after an
+        // app switch). ~1-3s backoff, up to ~40s total before giving up.
+        private const val MAX_AUDIO_RETRIES = 15
+        private const val RETRY_BASE_MS = 1_000L
+        private const val RETRY_MAX_MS = 3_000L
         private const val STORYBOARD_POLL_ATTEMPTS = 12
         private const val STORYBOARD_POLL_INTERVAL_MS = 5_000L
         private const val SEEK_LEAD_MS = 2_000L // start a bit before the scrubbed point
