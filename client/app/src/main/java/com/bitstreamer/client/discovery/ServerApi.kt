@@ -22,6 +22,7 @@ class ServerApi(private val baseUrl: String) {
         // Authoritative colour info from the server's ffprobe (Media3's client-side
         // colorInfo is unreliable, so we trust the server here).
         val videoHdr: Boolean,
+        val videoHdr10Plus: Boolean,
         val videoTransfer: String,
         val videoColorSpace: String,
         val dvProfile: Int,
@@ -56,12 +57,13 @@ class ServerApi(private val baseUrl: String) {
                 thumbnailsAvailable = json.optBoolean("thumbnails", false),
                 storyboardAvailable = json.optBoolean("storyboard", false),
                 videoHdr = video?.optBoolean("hdr", false) ?: false,
+                videoHdr10Plus = video?.optBoolean("hdr10plus", false) ?: false,
                 videoTransfer = video?.optString("transfer", "") ?: "",
                 videoColorSpace = video?.optString("colorSpace", "") ?: "",
                 dvProfile = video?.optInt("dvProfile", -1) ?: -1,
             )
         } catch (_: Exception) {
-            Info(emptyList(), false, false, false, "", "", -1)
+            Info(emptyList(), false, false, false, false, "", "", -1)
         }
     }
 

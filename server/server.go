@@ -132,6 +132,7 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"storyboard": a.story.enabled(),
 		"video": map[string]any{
 			"hdr":        a.probe.isHDR,
+			"hdr10plus":  a.probe.hdr10plus,
 			"transfer":   a.probe.colorTransfer,
 			"colorSpace": a.probe.colorSpace,
 			"dvProfile":  a.probe.dvProfile,

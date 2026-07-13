@@ -23,7 +23,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 object PlayerFactory {
 
     @OptIn(UnstableApi::class)
-    fun create(context: Context): ExoPlayer {
+    fun create(context: Context, disableDolbyVision: Boolean = false): ExoPlayer {
         // EXTENSION_RENDERER_MODE_OFF: no software decoders that could outrank
         // the passthrough path. Decoder fallback stays on so a broken decoder
         // doesn't kill playback outright. The audio sink is wrapped so DTS-HD
@@ -39,7 +39,7 @@ object PlayerFactory {
         }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
-            .setMediaCodecSelector(videoCodecSelector())
+            .setMediaCodecSelector(videoCodecSelector(disableDolbyVision))
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -54,25 +54,23 @@ object PlayerFactory {
     }
 
     /**
-     * Decoder selector that avoids the Fire TV Dolby Vision decoder, which
-     * black-screens (audio only) on Profile 7 dual-layer and DV+HDR10+ MKVs —
-     * a known Fire TV limitation (androidx/media #957, #1895). Returning no
-     * decoder for the DV mime makes Media3 fall back to its own alternative
-     * HEVC/AVC decoder, so the HDR10-compatible base layer is decoded instead
-     * (DV metadata is dropped; picture shows as HDR10). Flip DISABLE_DOLBY_VISION
-     * to false to let the platform DV decoder handle it.
+     * Decoder selector that avoids the Fire TV Dolby Vision decoder when
+     * [disableDolbyVision] is set. That decoder black-screens (audio only) on
+     * the problematic combinations — DV Profile 7 dual-layer and DV+HDR10+ MKVs
+     * (androidx/media #957, #1895) — while ordinary single-layer DV plays fine,
+     * so the caller decides per file. Returning no decoder for the DV mime makes
+     * Media3 fall back to its own alternative HEVC/AVC decoder, decoding the
+     * HDR10-compatible base layer (DV metadata dropped; shows as HDR10).
      */
     @OptIn(UnstableApi::class)
-    private fun videoCodecSelector(): MediaCodecSelector =
+    private fun videoCodecSelector(disableDolbyVision: Boolean): MediaCodecSelector =
         MediaCodecSelector { mimeType, requiresSecure, requiresTunneling ->
-            if (DISABLE_DOLBY_VISION && mimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+            if (disableDolbyVision && mimeType == MimeTypes.VIDEO_DOLBY_VISION) {
                 emptyList()
             } else {
                 MediaCodecUtil.getDecoderInfos(mimeType, requiresSecure, requiresTunneling)
             }
         }
-
-    private const val DISABLE_DOLBY_VISION = true
 
     /**
      * Wrapper for the UI: advertises no speed/pitch command, so PlayerView's

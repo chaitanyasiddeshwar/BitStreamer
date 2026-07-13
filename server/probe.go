@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // mediaProbe holds the video colour characteristics used to decide HDR
@@ -14,6 +15,7 @@ import (
 // MKV container tags, and it can see the Dolby Vision profile).
 type mediaProbe struct {
 	isHDR         bool
+	hdr10plus     bool
 	colorTransfer string
 	colorSpace    string
 	dvProfile     int // -1 if not Dolby Vision
@@ -66,9 +68,11 @@ func probeMedia(path string) (mediaProbe, bool) {
 	// PQ (HDR10/HDR10+) or HLG transfer, or any Dolby Vision layer, means we
 	// should tonemap the extracted frames.
 	isHDR := s.ColorTransfer == "smpte2084" || s.ColorTransfer == "arib-std-b67" || dv >= 0
+	hdr10plus := probeHDR10Plus(ffprobe, path)
 
 	p := mediaProbe{
 		isHDR:         isHDR,
+		hdr10plus:     hdr10plus,
 		colorTransfer: s.ColorTransfer,
 		colorSpace:    s.ColorSpace,
 		dvProfile:     dv,
@@ -77,9 +81,31 @@ func probeMedia(path string) (mediaProbe, bool) {
 	if dv >= 0 {
 		dvStr = fmt.Sprintf("profile %d", dv)
 	}
-	p.summary = fmt.Sprintf("HDR=%v (transfer=%s, space=%s, dolby-vision=%s)",
-		isHDR, orNA(s.ColorTransfer), orNA(s.ColorSpace), dvStr)
+	p.summary = fmt.Sprintf("HDR=%v (transfer=%s, space=%s, dolby-vision=%s, hdr10+=%v)",
+		isHDR, orNA(s.ColorTransfer), orNA(s.ColorSpace), dvStr, hdr10plus)
 	return p, true
+}
+
+// probeHDR10Plus reports whether the stream carries HDR10+ dynamic metadata
+// (SMPTE ST 2094-40), which is per-frame, so we scan the first several frames.
+func probeHDR10Plus(ffprobe, path string) bool {
+	cmd := exec.Command(ffprobe,
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-read_intervals", "%+#8",
+		"-show_frames",
+		"-show_entries", "frame_side_data=side_data_type",
+		"-of", "default=noprint_wrappers=1:nokey=1", path,
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	ffmpegLog.record("ffprobe hdr10+ "+filepath.Base(path), stderr.Bytes(), err)
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(string(out))
+	return strings.Contains(s, "2094") || strings.Contains(s, "dynamic hdr") || strings.Contains(s, "hdr10+")
 }
 
 func orNA(s string) string {

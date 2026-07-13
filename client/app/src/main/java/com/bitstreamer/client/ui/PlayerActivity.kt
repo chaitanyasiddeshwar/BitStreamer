@@ -74,6 +74,7 @@ class PlayerActivity : Activity() {
 
     // Authoritative colour info from the server's ffprobe.
     private var srcHdr = false
+    private var srcHdr10Plus = false
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
@@ -156,6 +157,7 @@ class PlayerActivity : Activity() {
                     storyboardEnabled = info?.storyboardAvailable ?: false
                     storyboard = sb
                     srcHdr = info?.videoHdr ?: false
+                    srcHdr10Plus = info?.videoHdr10Plus ?: false
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
@@ -200,7 +202,12 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        val exoPlayer = PlayerFactory.create(this)
+        // Fire TV black-screens on DV Profile 7 (dual layer) and DV+HDR10+ combos;
+        // for those, fall back to the HDR10 base layer. Ordinary single-layer DV
+        // (profile 5 / 8.1 without HDR10+) plays fine, so leave it on the DV path.
+        val disableDv = srcDvProfile == 7 || (srcDvProfile >= 0 && srcHdr10Plus)
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus -> disableDolbyVision=$disableDv")
+        val exoPlayer = PlayerFactory.create(this, disableDv)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
         setupControls()
