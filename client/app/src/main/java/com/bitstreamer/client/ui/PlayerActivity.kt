@@ -2,6 +2,7 @@ package com.bitstreamer.client.ui
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -9,6 +10,8 @@ import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowManager
+import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -20,15 +23,17 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.DefaultTimeBar
+import androidx.media3.ui.DefaultTrackNameProvider
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TimeBar
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
@@ -56,6 +61,7 @@ class PlayerActivity : Activity() {
     private var api: ServerApi? = null
     private var resumeDialog: AlertDialog? = null
     private var chaptersDialog: AlertDialog? = null
+    private var trackDialog: AlertDialog? = null
     private var chapters: List<ServerApi.Chapter> = emptyList()
     private var thumbnailLoader: ChapterThumbnailLoader? = null
     private var hasThumbnails = false
@@ -74,7 +80,15 @@ class PlayerActivity : Activity() {
     private val scrubListener = object : TimeBar.OnScrubListener {
         override fun onScrubStart(timeBar: TimeBar, position: Long) = showScrubPreview(position)
         override fun onScrubMove(timeBar: TimeBar, position: Long) = showScrubPreview(position)
-        override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) = hideScrubPreview()
+        override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+            hideScrubPreview()
+            if (!canceled) {
+                // Start a bit before the target so the scene shown in the preview
+                // actually plays, instead of starting just after it.
+                val target = (position - SEEK_LEAD_MS).coerceAtLeast(0)
+                mainHandler.post { player?.seekTo(target) } // runs after the controller's own seek
+            }
+        }
     }
 
     private val reportPosition = object : Runnable {
@@ -139,6 +153,8 @@ class PlayerActivity : Activity() {
         resumeDialog = null
         chaptersDialog?.dismiss()
         chaptersDialog = null
+        trackDialog?.dismiss()
+        trackDialog = null
         thumbnailLoader?.release()
         thumbnailLoader = null
         storyboardLoader?.release()
@@ -321,13 +337,72 @@ class PlayerActivity : Activity() {
         }
     }
 
+    private data class TrackEntry(
+        val label: String,
+        val group: TrackGroup?, // null = "Off"
+        val trackIndex: Int,
+        val selected: Boolean,
+    )
+
+    /**
+     * Custom audio/subtitle picker: selecting a row with D-pad OK applies it
+     * immediately and closes (no OK/Cancel; Back cancels). The dialog is widened
+     * to fit the longest track name so labels aren't truncated.
+     */
     private fun showTrackDialog(trackType: Int, title: String, allowOff: Boolean) {
         val p = player ?: return
-        TrackSelectionDialogBuilder(this, title, p, trackType)
-            .setAllowAdaptiveSelections(false)
-            .setShowDisableOption(allowOff)
-            .build()
-            .show()
+        val nameProvider = DefaultTrackNameProvider(resources)
+        val entries = mutableListOf<TrackEntry>()
+
+        if (allowOff) {
+            val anySelected = p.currentTracks.groups.any { it.type == trackType && it.isSelected }
+            entries.add(TrackEntry(getString(R.string.track_off), null, -1, !anySelected))
+        }
+        for (group in p.currentTracks.groups) {
+            if (group.type != trackType) continue
+            for (i in 0 until group.length) {
+                if (!group.isTrackSupported(i)) continue
+                entries.add(
+                    TrackEntry(
+                        nameProvider.getTrackName(group.getTrackFormat(i)),
+                        group.mediaTrackGroup, i, group.isTrackSelected(i),
+                    )
+                )
+            }
+        }
+        if (entries.isEmpty()) return
+
+        val labels = entries.map { (if (it.selected) "●  " else "○  ") + it.label }
+        val listView = ListView(this)
+        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val e = entries[pos]
+            val params = p.trackSelectionParameters.buildUpon()
+            if (e.group == null) {
+                params.clearOverridesOfType(trackType).setTrackTypeDisabled(trackType, true)
+            } else {
+                params.setTrackTypeDisabled(trackType, false)
+                    .setOverrideForType(TrackSelectionOverride(e.group, e.trackIndex))
+            }
+            p.trackSelectionParameters = params.build()
+            trackDialog?.dismiss()
+        }
+
+        val dialog = AlertDialog.Builder(this).setTitle(title).setView(listView).create()
+        trackDialog = dialog
+        dialog.show()
+        sizeDialogToContent(dialog, labels)
+    }
+
+    /** Widens [dialog] to fit the longest [labels] entry (clamped to the screen). */
+    private fun sizeDialogToContent(dialog: AlertDialog, labels: List<String>) {
+        val dm = resources.displayMetrics
+        val paint = Paint().apply { textSize = 18f * dm.scaledDensity }
+        val maxTextPx = labels.maxOfOrNull { paint.measureText(it) } ?: return
+        val padding = 96 * dm.density // row padding + dialog insets + selection glyph
+        val width = (maxTextPx + padding).toInt()
+            .coerceIn((320 * dm.density).toInt(), (dm.widthPixels * 0.92f).toInt())
+        dialog.window?.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
     }
 
     private fun showChaptersDialog() {
@@ -521,5 +596,6 @@ class PlayerActivity : Activity() {
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         private const val STORYBOARD_POLL_ATTEMPTS = 12
         private const val STORYBOARD_POLL_INTERVAL_MS = 5_000L
+        private const val SEEK_LEAD_MS = 2_000L // start a bit before the scrubbed point
     }
 }

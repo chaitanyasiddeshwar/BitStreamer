@@ -45,6 +45,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
 	}
 	chapters := parseChapters(mediaPath)
+	hdr := parseIsHDR(mediaPath)
 	return &app{
 		mediaPath:     mediaPath,
 		mediaName:     filepath.Base(mediaPath),
@@ -57,8 +58,8 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		clientLogPath: clientLogPath,
 		resume:        newResumeStore(resumePath, mediaPath),
 		chapters:      chapters,
-		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters),
-		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs),
+		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr),
+		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr),
 	}, nil
 }
 

@@ -19,7 +19,7 @@ func TestParseDurationFromFixture(t *testing.T) {
 
 func TestStoryboardGeneration(t *testing.T) {
 	path := filepath.Join("testdata", "chapters_sample.mkv")
-	sb := newStoryboard(path, parseDuration(path), 5000) // 5s interval over ~30s
+	sb := newStoryboard(path, parseDuration(path), 5000, parseIsHDR(path)) // 5s interval over ~30s
 	t.Cleanup(sb.cleanup)
 	if sb.ffmpegPath == "" {
 		t.Skip("ffmpeg not installed")

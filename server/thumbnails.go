@@ -26,13 +26,14 @@ type thumbnailer struct {
 	mediaMod   int64
 	cacheDir   string
 	chapters   []Chapter
+	hdr        bool
 
 	sem   chan struct{} // caps concurrent ffmpeg processes
 	mu    sync.Mutex
 	locks map[int]*sync.Mutex // per-index lock: no duplicate generation
 }
 
-func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter) *thumbnailer {
+func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter, hdr bool) *thumbnailer {
 	cacheDir := filepath.Join(os.TempDir(), "bitstreamer-thumbs")
 	_ = os.MkdirAll(cacheDir, 0o755)
 	return &thumbnailer{
@@ -41,6 +42,7 @@ func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter) *t
 		mediaMod:   mediaMod.Unix(),
 		cacheDir:   cacheDir,
 		chapters:   chapters,
+		hdr:        hdr,
 		sem:        make(chan struct{}, 3),
 		locks:      map[int]*sync.Mutex{},
 	}
@@ -77,23 +79,9 @@ func (t *thumbnailer) get(index int) (string, error) {
 	defer func() { <-t.sem }()
 
 	// Seek a few seconds past the chapter start to dodge black fade-ins.
-	// -ss before -i is a fast keyframe seek; one frame; scaled to 320px wide
-	// (-2 keeps aspect and an even height, required by the JPEG encoder).
 	seekSec := float64(t.chapters[index].StartMs+5000) / 1000.0
 	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
-	// -f mjpeg forces the JPEG encoder explicitly: the temp file ends in .tmp,
-	// so ffmpeg can't infer the format from the extension.
-	cmd := exec.Command(t.ffmpegPath,
-		"-nostdin", "-loglevel", "error",
-		"-ss", fmt.Sprintf("%.3f", seekSec),
-		"-i", t.mediaPath,
-		"-frames:v", "1",
-		"-vf", "scale=320:-2",
-		"-q:v", "4",
-		"-f", "mjpeg",
-		"-y", tmp,
-	)
-	if err := cmd.Run(); err != nil {
+	if err := extractFrame(t.ffmpegPath, t.mediaPath, seekSec, 320, 4, t.hdr, tmp); err != nil {
 		os.Remove(tmp)
 		return "", err
 	}

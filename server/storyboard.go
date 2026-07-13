@@ -7,7 +7,6 @@ import (
 	"image/jpeg"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 )
@@ -31,6 +30,7 @@ type storyboard struct {
 	durationMs int64
 	intervalMs int64
 	cacheDir   string
+	hdr        bool
 	sem        chan struct{} // caps concurrent ffmpeg seeks
 
 	mu         sync.RWMutex
@@ -41,7 +41,7 @@ type storyboard struct {
 	sheetCount int
 }
 
-func newStoryboard(mediaPath string, durationMs, intervalMs int64) *storyboard {
+func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool) *storyboard {
 	dir, err := os.MkdirTemp("", "bitstreamer-sb-")
 	if err != nil {
 		dir = ""
@@ -52,6 +52,7 @@ func newStoryboard(mediaPath string, durationMs, intervalMs int64) *storyboard {
 		durationMs: durationMs,
 		intervalMs: intervalMs,
 		cacheDir:   dir,
+		hdr:        hdr,
 		sem:        make(chan struct{}, 4),
 	}
 }
@@ -129,17 +130,7 @@ func (s *storyboard) generate() {
 func (s *storyboard) extractTile(idx int, tileDir string) {
 	seekSec := float64(int64(idx)*s.intervalMs) / 1000.0
 	out := filepath.Join(tileDir, fmt.Sprintf("t_%05d.jpg", idx))
-	cmd := exec.Command(s.ffmpegPath,
-		"-nostdin", "-loglevel", "error",
-		"-ss", fmt.Sprintf("%.3f", seekSec),
-		"-i", s.mediaPath,
-		"-frames:v", "1",
-		"-vf", fmt.Sprintf("scale=%d:-2", sbTileW),
-		"-q:v", "5",
-		"-f", "mjpeg",
-		"-y", out,
-	)
-	if err := cmd.Run(); err != nil {
+	if err := extractFrame(s.ffmpegPath, s.mediaPath, seekSec, sbTileW, 5, s.hdr, out); err != nil {
 		os.Remove(out)
 	}
 }
