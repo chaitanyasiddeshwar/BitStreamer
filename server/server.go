@@ -63,7 +63,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 			clientLogPath: clientLogPath,
 		}, nil
 	}
-	chapters := parseChapters(mediaPath)
+	chapters := chaptersFor(mediaPath)
 	// Prefer ffprobe (reads the real stream + Dolby Vision profile); fall back
 	// to the MKV container's colour tags if ffprobe isn't available.
 	probe, ok := probeMedia(mediaPath)
@@ -88,7 +88,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		resume:        newResumeStore(resumePath, mediaPath),
 		chapters:      chapters,
 		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
-		story:         newStoryboard(mediaPath, parseDuration(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
+		story:         newStoryboard(mediaPath, mediaDurationMs(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
 		probe:         probe,
 		cacheRoot:     cacheRoot,
 	}, nil
