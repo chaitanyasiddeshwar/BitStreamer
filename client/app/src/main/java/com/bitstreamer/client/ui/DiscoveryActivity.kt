@@ -120,8 +120,10 @@ class DiscoveryActivity : Activity() {
         statusView.text = getString(R.string.status_connecting, host)
         Thread {
             val server = client.fetchInfo(host)
+            val info = server?.let { ServerApi("http://${it.host}:${it.httpPort}").getInfo() }
             mainHandler.post {
                 if (server != null) {
+                    if (info != null) infoByHost[server.host] = info
                     play(server)
                 } else {
                     statusView.text = getString(R.string.status_connect_failed, host)
@@ -131,10 +133,18 @@ class DiscoveryActivity : Activity() {
     }
 
     private fun play(server: DiscoveryClient.Server) {
-        startActivity(Intent(this, PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)
-            putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
-        })
+        val base = "http://${server.host}:${server.httpPort}"
+        if (infoByHost[server.host]?.mode == "folder") {
+            startActivity(Intent(this, BrowserActivity::class.java).apply {
+                putExtra(BrowserActivity.EXTRA_BASE_URL, base)
+                putExtra(BrowserActivity.EXTRA_NAME, server.name)
+            })
+        } else {
+            startActivity(Intent(this, PlayerActivity::class.java).apply {
+                putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)
+                putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
+            })
+        }
     }
 
     // ---- details table ----
@@ -142,6 +152,12 @@ class DiscoveryActivity : Activity() {
     private fun renderDetails(host: String?) {
         detailsView.removeAllViews()
         val info = host?.let { infoByHost[it] } ?: return
+        if (info.mode == "folder") {
+            addHeader("Folder")
+            addRow("Name", info.file)
+            addRow("", "Select to browse")
+            return
+        }
         addHeader(getString(R.string.details_header))
         addRow("File", info.file)
         addRow("Size", humanSize(info.sizeBytes))

@@ -30,6 +30,11 @@
         </activity>
 
         <activity
+            android:name=".ui.BrowserActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+
+        <activity
             android:name=".ui.PlayerActivity"
             android:exported="false"
             android:screenOrientation="landscape"

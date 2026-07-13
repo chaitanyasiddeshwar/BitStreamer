@@ -3,6 +3,7 @@ package com.bitstreamer.client.discovery
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * Small client for the server's non-streaming endpoints. All methods are
@@ -14,8 +15,12 @@ class ServerApi(private val baseUrl: String) {
     /** A chapter marker parsed by the server from the MKV. */
     data class Chapter(val startMs: Long, val name: String)
 
+    /** One entry in a folder listing (folder mode). */
+    data class FolderEntry(val name: String, val isDir: Boolean, val sizeBytes: Long, val mime: String)
+
     /** Server metadata relevant to the player. */
     data class Info(
+        val mode: String, // "file" or "folder"
         val name: String,
         val file: String,
         val sizeBytes: Long,
@@ -45,10 +50,14 @@ class ServerApi(private val baseUrl: String) {
         val sheetCount: Int,
     )
 
-    /** Reads /info (full media metadata). Returns null if the server is unreachable. */
-    fun getInfo(): Info? {
+    /**
+     * Reads /info. For folder mode, pass the relative [path] of a file to get its
+     * metadata; null/"" reads the root marker. Returns null if unreachable.
+     */
+    fun getInfo(path: String? = null): Info? {
         return try {
-            val json = getJson("$baseUrl/info")
+            val url = if (path.isNullOrEmpty()) "$baseUrl/info" else "$baseUrl/info?path=${enc(path)}"
+            val json = getJson(url)
             val arr = json.optJSONArray("chapters")
             val chapters = if (arr == null) emptyList() else
                 (0 until arr.length()).mapNotNull { i ->
@@ -57,6 +66,7 @@ class ServerApi(private val baseUrl: String) {
                 }
             val video = json.optJSONObject("video")
             Info(
+                mode = json.optString("mode", "file"),
                 name = json.optString("name", ""),
                 file = json.optString("file", ""),
                 sizeBytes = json.optLong("size", 0),
@@ -100,6 +110,29 @@ class ServerApi(private val baseUrl: String) {
 
     /** URL of the server-generated thumbnail for chapter [index]. */
     fun chapterThumbUrl(index: Int): String = "$baseUrl/chapter-thumb?index=$index"
+
+    /** Lists a directory (folder mode). Empty on error. */
+    fun list(path: String): List<FolderEntry> {
+        return try {
+            val json = getJson("$baseUrl/list?path=${enc(path)}")
+            val arr = json.optJSONArray("entries") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                FolderEntry(o.optString("name", ""), o.optBoolean("dir", false),
+                    o.optLong("size", 0), o.optString("mime", ""))
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Stream URL for the single-file server. */
+    fun streamUrl(): String = "$baseUrl/stream"
+
+    /** Stream URL for a file at [path] within the served folder. */
+    fun streamUrlForPath(path: String): String = "$baseUrl/stream?path=${enc(path)}"
+
+    private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     private fun getJson(url: String): JSONObject {
         val conn = URL(url).openConnection() as HttpURLConnection

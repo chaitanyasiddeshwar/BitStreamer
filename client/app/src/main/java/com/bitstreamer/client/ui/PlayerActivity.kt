@@ -2,6 +2,7 @@ package com.bitstreamer.client.ui
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -72,6 +73,16 @@ class PlayerActivity : Activity() {
     private var storyboardLoader: StoryboardLoader? = null
     private var storyboardEnabled = false
 
+    // Folder mode: playing a file from a browsed folder. No resume/chapters/
+    // storyboard; RW/FF (and D-pad L/R for images) step to the prev/next file.
+    private var folderMode = false
+    private var infoPath = "" // relative path for /info?path= in folder mode
+    private var currentTitle = ""
+    private var playlistUrls: ArrayList<String>? = null
+    private var playlistTitles: ArrayList<String>? = null
+    private var playlistInfoPaths: ArrayList<String>? = null
+    private var playlistIndex = 0
+
     // Authoritative colour info from the server's ffprobe.
     private var srcHdr = false
     private var srcHdr10Plus = false
@@ -137,19 +148,23 @@ class PlayerActivity : Activity() {
             finish()
             return
         }
+        folderMode = intent.getBooleanExtra(EXTRA_FOLDER_MODE, false)
+        infoPath = intent.getStringExtra(EXTRA_INFO_PATH) ?: ""
+        currentTitle = intent.getStringExtra(EXTRA_TITLE) ?: ""
+        playlistUrls = intent.getStringArrayListExtra(EXTRA_PL_URLS)
+        playlistTitles = intent.getStringArrayListExtra(EXTRA_PL_TITLES)
+        playlistInfoPaths = intent.getStringArrayListExtra(EXTRA_PL_INFO_PATHS)
+        playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
         val uri = Uri.parse(url)
         baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
         RemoteLog.init(baseUrl)
-        // Ask the server for the resume position and chapter/thumbnail info
-        // before starting playback (cheap /position + /info reads).
+        // Fetch metadata before playback. Folder mode skips resume/storyboard.
         Thread {
             val a = api
-            val resumeMs = a?.getResumePositionMs() ?: 0
-            val info = a?.getInfo()
-            // Storyboard may still be generating; fetch it if the server reports
-            // it enabled, and poll later (setupControls) if not ready yet.
-            val sb = if (info?.storyboardAvailable == true) a?.getStoryboard() else null
+            val resumeMs = if (folderMode) 0L else (a?.getResumePositionMs() ?: 0L)
+            val info = a?.getInfo(infoPath.ifEmpty { null })
+            val sb = if (!folderMode && info?.storyboardAvailable == true) a?.getStoryboard() else null
             mainHandler.post {
                 if (!isFinishing) {
                     chapters = info?.chapters ?: emptyList()
@@ -190,7 +205,7 @@ class PlayerActivity : Activity() {
         }
         releasePlayer()
         Thread {
-            if (finalPositionMs >= 0) api?.postPosition(finalPositionMs)
+            if (!folderMode && finalPositionMs >= 0) api?.postPosition(finalPositionMs)
             RemoteLog.flushNow()
         }.start()
     }
@@ -296,15 +311,47 @@ class PlayerActivity : Activity() {
             }
         })
 
-        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+        // Images need an explicit duration to render; give a long one so they
+        // stay until the user navigates (folder mode).
+        val mediaItem = if (isImage(currentTitle)) {
+            MediaItem.Builder().setUri(url).setImageDurationMs(IMAGE_DURATION_MS).build()
+        } else {
+            MediaItem.fromUri(url)
+        }
+        exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
-        if (resumeMs >= MIN_RESUME_MS) {
+        if (!folderMode && resumeMs >= MIN_RESUME_MS) {
             exoPlayer.playWhenReady = false
             showResumeDialog(resumeMs)
         } else {
             exoPlayer.playWhenReady = true
         }
-        mainHandler.postDelayed(reportPosition, POSITION_REPORT_INTERVAL_MS)
+        if (!folderMode) {
+            mainHandler.postDelayed(reportPosition, POSITION_REPORT_INTERVAL_MS)
+        }
+    }
+
+    private fun isImage(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in setOf("jpg", "jpeg", "png", "webp", "bmp", "heic", "heif", "avif")
+    }
+
+    /** Relaunches the player on the folder sibling at [index] (manual next/prev). */
+    private fun playAt(index: Int) {
+        val urls = playlistUrls ?: return
+        if (index < 0 || index >= urls.size) return
+        startActivity(Intent(this, PlayerActivity::class.java).apply {
+            putExtra(EXTRA_URL, urls[index])
+            putExtra(EXTRA_TITLE, playlistTitles?.getOrNull(index) ?: "")
+            putExtra(EXTRA_INFO_PATH, playlistInfoPaths?.getOrNull(index) ?: "")
+            putExtra(EXTRA_FOLDER_MODE, true)
+            putStringArrayListExtra(EXTRA_PL_URLS, playlistUrls)
+            putStringArrayListExtra(EXTRA_PL_TITLES, playlistTitles)
+            putStringArrayListExtra(EXTRA_PL_INFO_PATHS, playlistInfoPaths)
+            putExtra(EXTRA_PL_INDEX, index)
+            addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        })
+        finish()
     }
 
     /**
@@ -558,6 +605,16 @@ class PlayerActivity : Activity() {
             playerView.hideController()
             return true
         }
+        // Folder mode: RW/FF step to the previous/next file; images also use
+        // D-pad left/right (they have no meaningful seek bar).
+        if (folderMode && playlistUrls != null && event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { playAt(playlistIndex + 1); return true }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> { playAt(playlistIndex - 1); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> if (isImage(currentTitle)) { playAt(playlistIndex + 1); return true }
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (isImage(currentTitle)) { playAt(playlistIndex - 1); return true }
+            }
+        }
         return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
     }
 
@@ -694,6 +751,13 @@ class PlayerActivity : Activity() {
         private const val TAG = "PlayerActivity"
         const val EXTRA_URL = "url"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_FOLDER_MODE = "folderMode"
+        const val EXTRA_INFO_PATH = "infoPath"
+        const val EXTRA_PL_URLS = "playlistUrls"
+        const val EXTRA_PL_TITLES = "playlistTitles"
+        const val EXTRA_PL_INFO_PATHS = "playlistInfoPaths"
+        const val EXTRA_PL_INDEX = "playlistIndex"
+        private const val IMAGE_DURATION_MS = 3_600_000L // 1h: image stays until user navigates
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         private const val STORYBOARD_POLL_ATTEMPTS = 12

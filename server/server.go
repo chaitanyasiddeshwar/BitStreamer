@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-// app holds the immutable configuration for one server run: exactly one media
-// file, served as raw bytes.
+// app holds the configuration for one server run — either a single media file
+// (with chapters/thumbnails/storyboard/resume) or a folder browsed by the client.
 type app struct {
 	mediaPath   string
 	mediaName   string
@@ -28,6 +28,12 @@ type app struct {
 	displayName string
 	apkPath     string
 	httpPort    int
+
+	// Folder mode: serve a directory tree for client browsing. In this mode the
+	// single-file fields above and the caches below are unused (no chapters/
+	// thumbnails/storyboard/resume — see docs/PROJECT_PLAN.md folder support).
+	folderMode bool
+	rootDir    string
 
 	clientLogPath string
 	clientLogMu   sync.Mutex
@@ -39,13 +45,23 @@ type app struct {
 	cacheRoot     string
 }
 
+// folderMaxDepth caps how deep the client can browse below the root folder.
+const folderMaxDepth = 3
+
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
 	info, err := os.Stat(mediaPath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open media file: %w", err)
+		return nil, fmt.Errorf("cannot open %s: %w", mediaPath, err)
 	}
 	if info.IsDir() {
-		return nil, fmt.Errorf("%s is a directory, not a media file", mediaPath)
+		return &app{
+			folderMode:    true,
+			rootDir:       mediaPath,
+			displayName:   displayName,
+			apkPath:       apkPath,
+			httpPort:      httpPort,
+			clientLogPath: clientLogPath,
+		}, nil
 	}
 	chapters := parseChapters(mediaPath)
 	// Prefer ffprobe (reads the real stream + Dolby Vision profile); fall back
@@ -164,21 +180,114 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/stream", a.handleStream)
 	mux.HandleFunc("/client.apk", a.handleAPK)
 	mux.HandleFunc("/log", a.handleClientLog)
-	mux.HandleFunc("/position", a.handlePosition)
-	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
-	mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
-	mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
+	if a.folderMode {
+		mux.HandleFunc("/list", a.handleList)
+	} else {
+		mux.HandleFunc("/position", a.handlePosition)
+		mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
+		mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
+		mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
+	}
 	return logRequests(mux)
 }
 
+// resolvePath maps a client-supplied relative path to an absolute path confined
+// to rootDir. The leading-slash + Clean collapses any ".." so it can't escape;
+// the prefix check is a belt-and-braces guard. Returns ok=false on escape.
+func (a *app) resolvePath(rel string) (string, bool) {
+	clean := filepath.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
+	full := filepath.Join(a.rootDir, filepath.FromSlash(clean))
+	rootAbs, err1 := filepath.Abs(a.rootDir)
+	fullAbs, err2 := filepath.Abs(full)
+	if err1 != nil || err2 != nil {
+		return "", false
+	}
+	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(os.PathSeparator)) {
+		return "", false
+	}
+	return full, true
+}
+
+// pathDepth counts path segments in a cleaned relative path ("" -> 0).
+func pathDepth(rel string) int {
+	rel = strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+	if rel == "" {
+		return 0
+	}
+	return strings.Count(rel, "/") + 1
+}
+
+// handleList returns a directory listing (folder mode): subfolders (up to depth
+// folderMaxDepth) plus playable files, dirs first, alphabetical.
+func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
+	rel := r.URL.Query().Get("path")
+	full, ok := a.resolvePath(rel)
+	if !ok {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	fi, err := os.Stat(full)
+	if err != nil || !fi.IsDir() {
+		http.Error(w, "not a directory", http.StatusNotFound)
+		return
+	}
+	depth := pathDepth(rel)
+	entries, err := os.ReadDir(full)
+	if err != nil {
+		http.Error(w, "cannot read directory", http.StatusInternalServerError)
+		return
+	}
+
+	type item struct {
+		Name string `json:"name"`
+		Dir  bool   `json:"dir"`
+		Size int64  `json:"size"`
+		Mime string `json:"mime"`
+	}
+	dirs := []item{}
+	files := []item{}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue // hide dotfiles
+		}
+		if e.IsDir() {
+			if depth < folderMaxDepth { // don't offer folders deeper than the cap
+				dirs = append(dirs, item{Name: name, Dir: true})
+			}
+		} else if isPlayable(name) {
+			size := int64(0)
+			if info, err := e.Info(); err == nil {
+				size = info.Size()
+			}
+			files = append(files, item{Name: name, Size: size, Mime: mimeForPath(name)})
+		}
+	}
+	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name) })
+	sort.Slice(files, func(i, j int) bool { return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name) })
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"v":       1,
+		"path":    strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/"),
+		"depth":   depth,
+		"entries": append(dirs, files...),
+	})
+}
+
 func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if a.folderMode {
+		a.writeFolderInfo(w, r)
+		return
+	}
 	chapters := a.chapters
 	if chapters == nil {
 		chapters = []Chapter{} // emit [] not null
 	}
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"v":          1,
+		"mode":       "file",
 		"name":       a.displayName,
 		"file":       a.mediaName,
 		"size":       a.mediaSize,
@@ -186,28 +295,86 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"chapters":   chapters,
 		"thumbnails": a.thumbs.available(),
 		"storyboard": a.story.enabled(),
-		"video": map[string]any{
-			"hdr":        a.probe.isHDR,
-			"hdr10plus":  a.probe.hdr10plus,
-			"transfer":   a.probe.colorTransfer,
-			"colorSpace": a.probe.colorSpace,
-			"dvProfile":  a.probe.dvProfile,
-		},
+		"video":      a.videoInfo(a.probe),
+	})
+}
+
+func (a *app) videoInfo(p mediaProbe) map[string]any {
+	return map[string]any{
+		"hdr":        p.isHDR,
+		"hdr10plus":  p.hdr10plus,
+		"transfer":   p.colorTransfer,
+		"colorSpace": p.colorSpace,
+		"dvProfile":  p.dvProfile,
+	}
+}
+
+// writeFolderInfo serves /info in folder mode. With no ?path it returns the
+// folder root marker; with a ?path it returns that file's metadata (ffprobe
+// colour on demand — no caching in folder mode).
+func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
+	rel := r.URL.Query().Get("path")
+	if rel == "" {
+		json.NewEncoder(w).Encode(map[string]any{
+			"v":    1,
+			"mode": "folder",
+			"name": a.displayName,
+			"file": filepath.Base(a.rootDir),
+		})
+		return
+	}
+	full, ok := a.resolvePath(rel)
+	if !ok {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	fi, err := os.Stat(full)
+	if err != nil || fi.IsDir() {
+		http.Error(w, "not a file", http.StatusNotFound)
+		return
+	}
+	probe, pok := probeMedia(full)
+	if !pok {
+		probe = mediaProbe{dvProfile: -1}
+	}
+	json.NewEncoder(w).Encode(map[string]any{
+		"v":     1,
+		"mode":  "folder",
+		"file":  filepath.Base(full),
+		"size":  fi.Size(),
+		"mime":  mimeForPath(full),
+		"video": a.videoInfo(probe),
 	})
 }
 
 func (a *app) handleStream(w http.ResponseWriter, r *http.Request) {
-	f, err := os.Open(a.mediaPath)
+	path := a.mediaPath
+	mime := a.mediaMime
+	if a.folderMode {
+		full, ok := a.resolvePath(r.URL.Query().Get("path"))
+		if !ok {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		path = full
+		mime = mimeForPath(full)
+	}
+	f, err := os.Open(path)
 	if err != nil {
-		http.Error(w, "media file is no longer readable", http.StatusInternalServerError)
+		http.Error(w, "file is no longer readable", http.StatusInternalServerError)
 		log.Printf("stream: %v", err)
 		return
 	}
 	defer f.Close()
-	w.Header().Set("Content-Type", a.mediaMime)
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
+		http.Error(w, "not a file", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
 	// ServeContent implements Range/206, If-Range and HEAD, and streams from
 	// the file without buffering it. Empty name: Content-Type is already set.
-	http.ServeContent(w, r, "", a.mediaMod, f)
+	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
 func (a *app) handleAPK(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +513,18 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if a.folderMode {
+		fmt.Fprintf(w, `<!doctype html>
+<title>BitStreamer</title>
+<h1>BitStreamer &mdash; %s</h1>
+<p>Serving folder <b>%s</b> &mdash; browse it from the Fire TV client.</p>
+<ul>
+  <li><a href="/list">/list</a> &mdash; directory listing (JSON)</li>
+  <li><a href="/client.apk">/client.apk</a> &mdash; Fire TV client APK</li>
+</ul>
+`, html.EscapeString(a.displayName), html.EscapeString(filepath.Base(a.rootDir)))
+		return
+	}
 	fmt.Fprintf(w, `<!doctype html>
 <title>BitStreamer</title>
 <h1>BitStreamer &mdash; %s</h1>

@@ -71,18 +71,20 @@ func main() {
 		*interval = 1
 	}
 
-	// Reject file types the Fire TV client can't play, with clear guidance.
+	// Reject unplayable file types (single-file mode only; a folder is browsed).
 	mediaPath := flag.Arg(0)
-	ext := strings.ToLower(filepath.Ext(mediaPath))
-	if ext == ".m2ts" || ext == ".mts" {
-		fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
-		os.Exit(1)
-	}
-	if !isPlayable(mediaPath) {
-		fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
-		fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
-		fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
-		os.Exit(1)
+	if fi, statErr := os.Stat(mediaPath); statErr == nil && !fi.IsDir() {
+		ext := strings.ToLower(filepath.Ext(mediaPath))
+		if ext == ".m2ts" || ext == ".mts" {
+			fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
+			os.Exit(1)
+		}
+		if !isPlayable(mediaPath) {
+			fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
+			fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
+			fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
+			os.Exit(1)
+		}
 	}
 
 	app, err := newApp(mediaPath, *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
@@ -97,39 +99,51 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("Serving %q (%s)\n\n", app.mediaName, formatSize(app.mediaSize))
+	if app.folderMode {
+		fmt.Printf("Serving folder %q (browse it from the client)\n\n", app.rootDir)
+	} else {
+		fmt.Printf("Serving %q (%s)\n\n", app.mediaName, formatSize(app.mediaSize))
+	}
 	for _, ip := range lanIPv4s() {
-		fmt.Printf("  stream  http://%s:%d/stream\n", ip, app.httpPort)
-		fmt.Printf("  client  http://%s:%d/client.apk\n\n", ip, app.httpPort)
+		fmt.Printf("  client  http://%s:%d/client.apk\n", ip, app.httpPort)
+		if !app.folderMode {
+			fmt.Printf("  stream  http://%s:%d/stream\n", ip, app.httpPort)
+		}
+		fmt.Println()
 	}
 	fmt.Printf("Client diagnostics will be appended to %s\n", app.clientLogPath)
-	if len(app.chapters) > 0 {
-		if app.thumbs.available() {
-			fmt.Printf("Chapters: %d, generating thumbnails in the background (ffmpeg found)\n", len(app.chapters))
-			go app.thumbs.warm() // pre-generate so the chapter menu is instant
-		} else {
-			fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
+
+	if app.folderMode {
+		fmt.Println("Folder mode: no chapters/thumbnails/scrub previews (single-file mode only).")
+	} else {
+		if len(app.chapters) > 0 {
+			if app.thumbs.available() {
+				fmt.Printf("Chapters: %d, generating thumbnails in the background (ffmpeg found)\n", len(app.chapters))
+				go app.thumbs.warm() // pre-generate so the chapter menu is instant
+			} else {
+				fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
+			}
 		}
-	}
-	if app.probe.summary != "" {
-		fmt.Printf("Video: %s\n", app.probe.summary)
-	}
-	if app.probe.isHDR && app.thumbs.ffmpegPath != "" {
-		if hasZscale(app.thumbs.ffmpegPath) {
-			fmt.Println("HDR thumbnails: tonemapped to SDR (ffmpeg zscale present)")
-		} else {
-			fmt.Println("HDR thumbnails: not tonemapped (this ffmpeg has no zscale; build with --enable-libzimg)")
+		if app.probe.summary != "" {
+			fmt.Printf("Video: %s\n", app.probe.summary)
 		}
-	}
-	if app.probe.dvProfile == 7 {
-		fmt.Print(dolbyVisionAdvisory(mediaPath))
-	}
-	if app.thumbs.available() || app.story.enabled() {
-		fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
-	}
-	if app.story.enabled() {
-		fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
-		go app.story.generate()
+		if app.probe.isHDR && app.thumbs.ffmpegPath != "" {
+			if hasZscale(app.thumbs.ffmpegPath) {
+				fmt.Println("HDR thumbnails: tonemapped to SDR (ffmpeg zscale present)")
+			} else {
+				fmt.Println("HDR thumbnails: not tonemapped (this ffmpeg has no zscale; build with --enable-libzimg)")
+			}
+		}
+		if app.probe.dvProfile == 7 {
+			fmt.Print(dolbyVisionAdvisory(mediaPath))
+		}
+		if app.thumbs.available() || app.story.enabled() {
+			fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
+		}
+		if app.story.enabled() {
+			fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
+			go app.story.generate()
+		}
 	}
 
 	// On Ctrl+C / termination, delete the whole cache (thumbnails + storyboard)
