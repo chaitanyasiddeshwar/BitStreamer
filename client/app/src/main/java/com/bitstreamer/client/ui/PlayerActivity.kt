@@ -217,11 +217,13 @@ class PlayerActivity : Activity() {
     }
 
     /**
-     * Keeps subtitles inside the picture regardless of the movie's aspect ratio.
-     * Media3's SubtitleView fills the whole PlayerView, so on a widescreen movie
-     * letterboxed on a 16:9 screen, bottom-anchored subtitles land in (or across)
-     * the lower black bar. We measure the bar from the video vs. view aspect and
-     * raise the subtitle baseline above it — the way Netflix/Prime place them.
+     * Places subtitles low in the picture regardless of the movie's aspect ratio.
+     * Media3's SubtitleView is confined to the *video frame* (not the whole
+     * screen), so setBottomPaddingFraction is measured within the picture: a
+     * small fraction sits just above the picture's lower edge (above the black
+     * bar on a letterboxed movie), a larger one floats higher into the frame.
+     * We therefore drop letterboxed (wider-than-screen) movies close to the
+     * picture's bottom edge, and keep the roomier placement for 16:9.
      */
     private fun updateSubtitlePosition() {
         val sv = playerView.subtitleView ?: return
@@ -232,16 +234,10 @@ class PlayerActivity : Activity() {
         val par = if (vs.pixelWidthHeightRatio > 0f) vs.pixelWidthHeightRatio else 1f
         val videoAspect = vs.width * par / vs.height
         val viewAspect = vw.toFloat() / vh
-        var bottomFraction = SUBTITLE_BOTTOM_PADDING_FRACTION
-        if (videoAspect > viewAspect) {
-            // Letterboxed: black bars top and bottom. Sit the subtitles just
-            // above the bottom bar (a small margin into the picture) so they
-            // hug the picture's lower edge rather than floating up into it.
-            val displayedVideoHeight = vw / videoAspect
-            val barFraction = (vh - displayedVideoHeight) / 2f / vh
-            bottomFraction = maxOf(SUBTITLE_LETTERBOX_MIN_FRACTION, barFraction + SUBTITLE_LETTERBOX_MARGIN_FRACTION)
-        }
-        sv.setBottomPaddingFraction(bottomFraction.coerceIn(0f, 0.45f))
+        val bottomFraction =
+            if (videoAspect > viewAspect) SUBTITLE_LETTERBOX_BOTTOM_FRACTION
+            else SUBTITLE_BOTTOM_PADDING_FRACTION
+        sv.setBottomPaddingFraction(bottomFraction)
     }
 
     override fun onStart() {
@@ -987,14 +983,11 @@ class PlayerActivity : Activity() {
         // Un-letterboxed (16:9) video: subtitles sit ~10% up from the screen
         // bottom, which reads well and leaves room below.
         private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.10f
-        // Letterboxed video: subtitles hug just inside the picture's lower edge,
-        // a hair (this margin) above the black bar, so they sit as low as
-        // possible without dropping into the bar. MIN keeps near-16:9 content
-        // (thin bars) off the extreme screen bottom; it is intentionally lower
-        // than the 16:9 value so wide films can actually drop. See
+        // Letterboxed (wider-than-screen) video: the SubtitleView is confined to
+        // the picture, so this small fraction sits the subtitles just above the
+        // picture's lower edge (i.e. just above the black bar). See
         // updateSubtitlePosition.
-        private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.005f
-        private const val SUBTITLE_LETTERBOX_MIN_FRACTION = 0.04f
+        private const val SUBTITLE_LETTERBOX_BOTTOM_FRACTION = 0.03f
         private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an
         // app switch). ~1-3s backoff, up to ~40s total before giving up.
