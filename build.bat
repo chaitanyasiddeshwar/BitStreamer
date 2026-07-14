@@ -5,6 +5,10 @@ REM server from there and it serves the APK at /client.apk for the Downloader.
 setlocal
 set "ROOT=%~dp0"
 
+set "JAVA_HOME=C:\Program Files\Android\Android Studio\jbr"
+set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
+set "PATH=%ANDROID_HOME%\platform-tools;%ANDROID_HOME%\emulator;%PATH%"
+
 echo ==^> Building server -^> dist\
 pushd "%ROOT%server"
 call build.bat
