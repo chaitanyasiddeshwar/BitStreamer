@@ -988,7 +988,11 @@ class PlayerActivity : Activity() {
         // the bottom bar) so they sit as low as possible without dropping into the
         // black bar (see updateSubtitlePosition).
         private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.048f
-        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.10f
+        // DIAGNOSTIC (temporary): 0.35 pushes subtitles to ~mid-screen so we can
+        // confirm setBottomPaddingFraction actually moves them. If they DON'T move
+        // at this value, embedded ASS/SSA positioning is overriding us and we need
+        // a different fix. Restore to 0.10 once confirmed.
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.35f
         private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.005f
         private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an

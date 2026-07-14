@@ -42,7 +42,7 @@
                 android:layout_width="0dp"
                 android:layout_height="26dp"
                 android:layout_weight="1"
-                android:nextFocusDown="@id/btn_audio"
+                android:nextFocusDown="@id/btn_subtitles"
                 app:ad_marker_color="#FFFFFFFF"
                 app:played_ad_marker_color="#FFFFFFFF" />
 
@@ -64,26 +64,26 @@
             <!-- Left/right focus among these is left to default geometry traversal,
                  so a hidden Chapters button doesn't break the chain. -->
             <ImageButton
-                android:id="@+id/btn_audio"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:padding="8dp"
-                android:background="@drawable/options_btn_bg"
-                android:src="@drawable/ic_audio"
-                android:scaleType="fitCenter"
-                android:contentDescription="@string/opt_audio"
-                android:nextFocusUp="@id/exo_progress" />
-
-            <ImageButton
                 android:id="@+id/btn_subtitles"
                 android:layout_width="38dp"
                 android:layout_height="38dp"
-                android:layout_marginStart="10dp"
                 android:padding="8dp"
                 android:background="@drawable/options_btn_bg"
                 android:src="@drawable/ic_subtitles"
                 android:scaleType="fitCenter"
                 android:contentDescription="@string/opt_subtitles"
+                android:nextFocusUp="@id/exo_progress" />
+
+            <ImageButton
+                android:id="@+id/btn_audio"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="10dp"
+                android:padding="8dp"
+                android:background="@drawable/options_btn_bg"
+                android:src="@drawable/ic_audio"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/opt_audio"
                 android:nextFocusUp="@id/exo_progress" />
 
             <ImageButton
