@@ -239,7 +239,7 @@ class PlayerActivity : Activity() {
             // hug the picture's lower edge rather than floating up into it.
             val displayedVideoHeight = vw / videoAspect
             val barFraction = (vh - displayedVideoHeight) / 2f / vh
-            bottomFraction = maxOf(SUBTITLE_BOTTOM_PADDING_FRACTION, barFraction + SUBTITLE_LETTERBOX_MARGIN_FRACTION)
+            bottomFraction = maxOf(SUBTITLE_LETTERBOX_MIN_FRACTION, barFraction + SUBTITLE_LETTERBOX_MARGIN_FRACTION)
         }
         sv.setBottomPaddingFraction(bottomFraction.coerceIn(0f, 0.45f))
     }
@@ -982,18 +982,19 @@ class PlayerActivity : Activity() {
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         // Subtitle sizing/placement (fractions of the player-view height). Text
-        // size is a touch smaller than Media3's 0.0533 default. Bottom padding is
-        // ~10% up from the screen bottom for un-letterboxed video; for letterboxed
-        // video, subtitles hug just inside the picture's lower edge (a hair above
-        // the bottom bar) so they sit as low as possible without dropping into the
-        // black bar (see updateSubtitlePosition).
+        // size is a touch smaller than Media3's 0.0533 default.
         private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.048f
-        // DIAGNOSTIC (temporary): 0.35 pushes subtitles to ~mid-screen so we can
-        // confirm setBottomPaddingFraction actually moves them. If they DON'T move
-        // at this value, embedded ASS/SSA positioning is overriding us and we need
-        // a different fix. Restore to 0.10 once confirmed.
-        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.35f
+        // Un-letterboxed (16:9) video: subtitles sit ~10% up from the screen
+        // bottom, which reads well and leaves room below.
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.10f
+        // Letterboxed video: subtitles hug just inside the picture's lower edge,
+        // a hair (this margin) above the black bar, so they sit as low as
+        // possible without dropping into the bar. MIN keeps near-16:9 content
+        // (thin bars) off the extreme screen bottom; it is intentionally lower
+        // than the 16:9 value so wide films can actually drop. See
+        // updateSubtitlePosition.
         private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.005f
+        private const val SUBTITLE_LETTERBOX_MIN_FRACTION = 0.04f
         private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an
         // app switch). ~1-3s backoff, up to ~40s total before giving up.
