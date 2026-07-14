@@ -29,6 +29,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -137,6 +138,28 @@ class PlayerActivity : Activity() {
                 Thread { api?.postPosition(ms) }.start()
             }
             mainHandler.postDelayed(this, POSITION_REPORT_INTERVAL_MS)
+        }
+    }
+
+    // The right-hand time label in the controls, showing time *remaining*
+    // (e.g. "-1:23:45") rather than the total duration Media3 would put there.
+    private var timeRemainingView: TextView? = null
+    private val timeFormatBuilder = StringBuilder()
+    private val timeFormatter = java.util.Formatter(timeFormatBuilder, java.util.Locale.getDefault())
+
+    // Updates the remaining-time label ~10x/sec while the player exists.
+    private val remainingRefresh = object : Runnable {
+        override fun run() {
+            val p = player
+            val tv = timeRemainingView
+            if (p != null && tv != null) {
+                val dur = p.duration
+                if (dur != C.TIME_UNSET) {
+                    val remaining = (dur - p.currentPosition).coerceAtLeast(0)
+                    tv.text = "-" + Util.getStringForTime(timeFormatBuilder, timeFormatter, remaining)
+                }
+            }
+            mainHandler.postDelayed(this, 100)
         }
     }
 
@@ -267,6 +290,7 @@ class PlayerActivity : Activity() {
         super.onStop()
         mainHandler.removeCallbacks(reportPosition)
         mainHandler.removeCallbacks(statsRefresh)
+        mainHandler.removeCallbacks(remainingRefresh)
         mainHandler.removeCallbacks(retryPlayback)
         resumeDialog?.dismiss()
         resumeDialog = null
@@ -487,6 +511,10 @@ class PlayerActivity : Activity() {
                 }
             }
         )
+
+        timeRemainingView = playerView.findViewById(R.id.time_remaining)
+        mainHandler.removeCallbacks(remainingRefresh)
+        mainHandler.post(remainingRefresh)
 
         val btnAudio = playerView.findViewById<ImageButton>(R.id.btn_audio)
         val btnSubs = playerView.findViewById<ImageButton>(R.id.btn_subtitles)
@@ -870,7 +898,7 @@ class PlayerActivity : Activity() {
         row("audio rate", bitrateStr(a?.bitrate ?: Format.NO_VALUE, mbps = false))
         row("language", a?.language ?: "")
         row("output", audioTrackDescription)
-        row("HDMI caps", AudioCaps.describe(this))
+        //row("HDMI caps", AudioCaps.describe(this))
 
         overlayView.text = sb.toString()
     }
@@ -959,7 +987,7 @@ class PlayerActivity : Activity() {
         // video, subtitles sit at least just above the bottom bar so they never
         // straddle the picture edge (see updateSubtitlePosition).
         private const val SUBTITLE_TEXT_SIZE_FRACTION = 0.048f
-        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.10f
+        private const val SUBTITLE_BOTTOM_PADDING_FRACTION = 0.06f
         private const val SUBTITLE_LETTERBOX_MARGIN_FRACTION = 0.02f
         private const val EXT_SUB_ID_PREFIX = "bitstreamer-sub-" // marks sidecar subtitle tracks
         // Audio-device error recovery (transient passthrough failures after an

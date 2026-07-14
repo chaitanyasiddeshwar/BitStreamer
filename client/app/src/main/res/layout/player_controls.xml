@@ -46,8 +46,11 @@
                 app:ad_marker_color="#FFFFFFFF"
                 app:played_ad_marker_color="#FFFFFFFF" />
 
+            <!-- Not @id/exo_duration: Media3 auto-fills that with total duration.
+                 We take over this label and show time *remaining* instead (see
+                 remainingRefresh in PlayerActivity). -->
             <TextView
-                android:id="@id/exo_duration"
+                android:id="@+id/time_remaining"
                 style="@style/ExoStyledControls.TimeText.Duration" />
         </LinearLayout>
 
