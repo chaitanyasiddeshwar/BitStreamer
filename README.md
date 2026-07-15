@@ -112,7 +112,9 @@ After building both, `dist/` contains:
 
 ```
 dist/
-  bitstreamer.exe        (or bitstreamer / bitstreamer-macos)
+  bitstreamer.exe        (Windows)
+  bitstreamer-macos      (macOS Universal)
+  bitstreamer-linux      (Linux)
   client.apk
 ```
 
@@ -125,9 +127,10 @@ On the serving PC, from the `dist/` folder (allow it on Private networks when th
 prompt appears):
 
 ```
-bitstreamer.exe "C:\Movies\film.mkv"                    # Windows
-./bitstreamer "/Volumes/Movies/film.mkv"                # macOS/Linux
-bitstreamer.exe --interval 20 "C:\Movies\film.mkv"      # denser scrub previews (every 20s)
+bitstreamer.exe "C:\Movies\film.mkv"                      # Windows
+./bitstreamer-macos "/Volumes/Movies/film.mkv"            # macOS
+./bitstreamer-linux "/path/to/film.mkv"                   # Linux
+bitstreamer.exe --interval 20 "C:\Movies\film.mkv"        # Windows, denser scrub previews (every 20s)
 ```
 
 The server prints the stream URL, the APK URL, and whether chapter thumbnails / scrub

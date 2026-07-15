@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.23'
           cache-dependency-path: server/go.mod
@@ -34,7 +34,7 @@ jobs:
           GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../dist/bitstreamer-linux .
 
       - name: Upload Cross Server Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: server-cross-binaries
           path: |
@@ -46,10 +46,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.23'
           cache-dependency-path: server/go.mod
@@ -63,7 +63,7 @@ jobs:
           lipo -create -output ../dist/bitstreamer-macos ../dist/bitstreamer-macos-arm64 ../dist/bitstreamer-macos-amd64
 
       - name: Upload macOS Server Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: server-mac-binary
           path: dist/bitstreamer-macos
@@ -73,16 +73,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'zulu'
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Build APK
         run: |
@@ -91,7 +91,7 @@ jobs:
           ./gradlew assembleRelease
 
       - name: Upload Client APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: client-apk
           path: dist/client.apk
@@ -102,22 +102,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download Windows & Linux Server Binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: server-cross-binaries
           path: dist
 
       - name: Download macOS Server Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: server-mac-binary
           path: dist
 
       - name: Download Client APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: client-apk
           path: dist
@@ -129,19 +129,20 @@ jobs:
           output_dir: dist
           build_html: false
 
+      - name: Create Release Zip
+        run: |
+          cd dist
+          zip -r ../bitstreamer-${{ github.ref_name }}.zip ./*
+
       - name: List Release Files
         run: |
-          ls -lR dist
+          ls -l bitstreamer-${{ github.ref_name }}.zip
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
-            dist/bitstreamer.exe
-            dist/bitstreamer-linux
-            dist/bitstreamer-macos
-            dist/client.apk
-            dist/USER_MANUAL.pdf
+            bitstreamer-${{ github.ref_name }}.zip
           draft: false
           prerelease: false
           generate_release_notes: true

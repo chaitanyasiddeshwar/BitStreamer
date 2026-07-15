@@ -24,8 +24,11 @@ On your PC, open a command prompt/terminal and run:
 # Windows
 bitstreamer.exe "C:\Movies\your-movie.mkv"
 
-# macOS / Linux
-./bitstreamer "/path/to/your-movie.mkv"
+# macOS
+./bitstreamer-macos "/Volumes/Movies/your-movie.mkv"
+
+# Linux
+./bitstreamer-linux "/path/to/your-movie.mkv"
 ```
 The server will print:
 - Your local network IP addresses
