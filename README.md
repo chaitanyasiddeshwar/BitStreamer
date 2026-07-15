@@ -1,9 +1,7 @@
 # BitStreamer
-BitStreamer is a lightweight, zero-transcode local network media streamer with it's own client App that can be sideloaded into FireTV. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports full bitstream of Audio codecs including Dolby TrueHD and DTS-HD (actually only the DTS core because of FireTV limitations), where supported by the FireTV device. The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site. You can build and run the whole code from your local machine if you have the right tools.
+_(I started this project because I was frustrated with Plex/Emby/Jellyfin since none could give me full bit streaming support (esp DTS) and mixed experience with Dolby Vision/HDR10+.This is still limited by what the FireTV can support, but serves my very specific purpose of being able to serve and watch one movie/episode with full bitstream and DV/HDR support. I hope it is useful to others)_
 
-Play a movie file from a PC on a Fire TV Stick 4K — video and audio served
-**byte-for-byte, no transcoding**, with the original Dolby Digital / DD+ / Atmos / DTS
-audio bitstreamed over HDMI to your TV or AV receiver.
+BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site or create an account. You can build and run the whole code from your local machine if you have the right tools.
 
 - `server/` — Go server, one self-contained binary, serves the file over HTTP with Range support
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
@@ -176,6 +174,22 @@ the server generates, in the background at startup:
 Without ffmpeg both are skipped: the chapter selector lists names/times only, and scrubbing
 has no preview. The scrub-preview cache is per-session (cleared when the server exits). The
 server prints which modes are enabled at startup. See [docs/THUMBNAILS.md](docs/THUMBNAILS.md).
+
+## Known Issues
+
+### DTS-HD / DTS:X Playback (Limited to DTS Core)
+- **Issue:** Lossless DTS-HD Master Audio and DTS:X audio tracks are played as standard **DTS Core** (5.1 surround sound) instead of full lossless audio.
+- **Cause:** This is a hardware limitation of the Fire TV platform. Fire OS does not expose the full DTS-HD lossless bitstream to third-party Android apps via standard `AudioTrack` APIs; it only makes the 5.1-channel DTS Core portion reachable. 
+- **Workaround:** There is no direct app workaround. If you require lossless audio, a device that supports full Dolby TrueHD and DTS-HD passthrough (such as Nvidia Shield TV Pro) is required.
+
+### Dolby Vision Profile 7 FEL (Black Screen, Audio Only)
+- **Issue:** When attempting to play a Dolby Vision **Profile 7 FEL** (Full Enhancement Layer) dual-layer video track (commonly found on 4K UHD Blu-ray REMUX files), the audio plays perfectly but the **screen remains black**.
+- **Cause:** Dual-layer Profile 7 files contain a Base Layer (HDR10 compatible) plus a Full Enhancement Layer (FEL) containing actual picture residual details. The Fire TV's hardware Dolby Vision decoder cannot decode the enhancement layer and stalls. (Note: Profile 7 **MEL** or Profile 8 files play natively as Dolby Vision without issues).
+- **Workaround:** You can losslessly strip the Dolby Vision enhancement layer and metadata to leave the standard HDR10 base layer. When you select a Profile 7 file, the server will print a ready-to-run `ffmpeg` command in the console:
+  ```bash
+  ffmpeg -i "Movie.mkv" -map 0 -c copy -bsf:v "filter_units=remove_types=62|63" "Movie_no_dv.mkv"
+  ```
+  Run this command on your PC. The output `Movie_no_dv.mkv` will be created losslessly without re-encoding, preserving all audio and subtitle tracks, and can be played perfectly on the client in HDR10 mode.
 
 ## Troubleshooting
 
