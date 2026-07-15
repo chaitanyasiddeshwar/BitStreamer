@@ -51,7 +51,7 @@ Whenever you tag a commit with a version tag prefix `v` (such as `v1.0.0`) and p
 - **Publish Release:**
   - Aggregates all artifacts.
   - Creates a GitHub Release matching the tag.
-  - Uploads the binaries (`bitstreamer.exe`, `bitstreamer-linux`, `bitstreamer-macos`, and `client.apk`) directly to the release.
+  - Uploads the binaries (`bitstreamer.exe`, `bitstreamer-linux`, `bitstreamer-macos`, and `client.apk`) and `dist/USER_MANUAL.pdf` directly to the release.
   - Generates automatic release changelog notes.
 
 ---
@@ -93,8 +93,9 @@ If you want to create the release entirely by hand using GitHub's website:
    - Select **Choose a tag** and pick `v1.0.0`.
    - Enter `v1.0.0` as the **Release Title**.
    - Write your release description in the text box.
-   - Drag and drop the following files from your local `dist/` folder into the attachment box:
-     - `bitstreamer.exe`
-     - `bitstreamer-macos` (or `bitstreamer` depending on host OS)
-     - `client.apk`
+   - Drag and drop the following files into the attachment box:
+     - `bitstreamer.exe` (from `dist/`)
+     - `bitstreamer-macos` (or `bitstreamer` depending on host OS, from `dist/`)
+     - `client.apk` (from `dist/`)
+     - `USER_MANUAL.pdf` (compiled from `docs/USER_MANUAL.md`)
    - Click **Publish release**.

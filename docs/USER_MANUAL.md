@@ -1,0 +1,95 @@
+# BitStreamer User Manual
+
+Welcome to BitStreamer! This manual covers everything you need to know to set up, run, and troubleshoot the BitStreamer server and client.
+
+---
+
+## 1. Overview
+BitStreamer is a lightweight, zero-transcode local network media streamer. 
+- **The Server** (run on your PC) serves your media file byte-for-byte over HTTP.
+- **The Client** (run on your Fire TV) discovers the server automatically, plays the file with hardware video decoding, and bitstreams the audio untouched over HDMI to your TV/AV receiver.
+
+---
+
+## 2. Server Setup & Usage
+
+### Running the Server
+On your PC, open a command prompt/terminal and run:
+```bash
+# Windows
+bitstreamer.exe "C:\Movies\your-movie.mkv"
+
+# macOS / Linux
+./bitstreamer "/path/to/your-movie.mkv"
+```
+The server will print:
+- Your local network IP addresses
+- The streaming URL (for checking in a browser)
+- The Client APK download link
+
+### Windows Firewall Setup (One-Time)
+If you run the server on Windows, you must allow incoming traffic. Run these commands as **Administrator**:
+```cmd
+netsh advfirewall firewall add rule name="BitStreamer HTTP" dir=in action=allow protocol=TCP localport=46898 profile=private
+netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=allow protocol=UDP localport=46899 profile=private
+```
+
+### Advanced Server Options
+- `--port 46898`: Set a custom port for the HTTP server.
+- `--interval 30`: Set the scrubbing-preview interval in seconds (default: 30).
+- `--keep-cache`: Do not delete thumbnails and scrub preview cache when stopping the server (makes subsequent starts faster).
+
+---
+
+## 3. Client Installation & Usage
+
+### Installing the Android TV Client
+1. On your Fire TV, search for and install the **Downloader** app from the Amazon Appstore.
+2. Open Downloader and enter the APK URL printed by your server (e.g., `http://192.168.1.20:46898/client.apk`).
+3. Download and install the APK. *(Note: You will need to allow Downloader to "Install unknown apps" in Fire TV Settings).*
+
+### Playing Media
+1. Launch **BitStreamer** on your Fire TV.
+2. The app will search for servers on the local network. Select the found server.
+3. If the server is not found automatically, enter your PC's IP address manually in the input box at the bottom.
+
+### Remote Control Mapping
+- **Center / Play-Pause Button**: Play or pause the video.
+- **D-pad Left / Right**: Jump backwards/forwards by one preview interval (default: 30s) and show the scrubbing preview frame.
+- **Rewind / Fast Forward Buttons**: Continuous seek.
+- **D-pad Up**: Show playback controls.
+- **D-pad Down**: Open the option menus (Audio tracks, Subtitles, Chapters, Stats).
+- **Menu Button**: Toggle the **Stats for Nerds** overlay.
+- **Back Button**: Hide playback controls, or exit playback.
+
+---
+
+## 4. Getting Best Audio & Video
+
+### Audio Bitstreaming (HDMI Passthrough)
+To ensure raw compressed audio is handed directly to your soundbar/receiver:
+1. On your Fire TV, go to **Settings → Display & Sounds → Audio → Surround Sound**.
+2. Select **Best Available** (or **Dolby Digital Plus / Atmos** depending on your OS version).
+3. Check your AV Receiver or TV display panel to confirm it shows the correct audio stream (e.g., *Dolby Atmos*, *DTS*, *Dolby Digital*).
+
+> [!NOTE]
+> **DTS-HD** streams are played as **DTS Core** (5.1 surround sound extracted on the fly), since Fire TV hardware does not support full DTS-HD passthrough.
+> **Dolby TrueHD** is supported only on newer models like the Fire TV Stick 4K Max (2nd Gen).
+
+### Subtitles
+- BitStreamer automatically detects sidecar subtitle files (e.g., `.srt`, `.ass`, `.vtt`) placed next to the movie file on the server.
+- Use the D-pad Down menu to toggle subtitles on/off or change tracks.
+
+### Chapters & Scrubbing Previews (Optional)
+To enable visual chapter markers and Netflix-style scrubbing previews:
+1. Download `ffmpeg` and `ffprobe` binaries.
+2. Place `ffmpeg.exe` and `ffprobe.exe` (or your OS equivalents) in the same directory as the `bitstreamer` server executable, or put them on your system's `PATH`.
+3. The server will automatically generate chapter thumbnails and storyboard images at startup.
+
+---
+
+## 5. Troubleshooting
+
+If you encounter issues during playback, check these logs located next to the server executable on your PC:
+- **`client-logs.txt`**: Contains playback logs sent dynamically from the Fire TV client. Use this to verify codec selection and audio track initialization.
+- **`ffmpeg-logs.txt`**: Contains detailed output from background chapter/scrubbing thumbnail generation.

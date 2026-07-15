@@ -122,6 +122,13 @@ jobs:
           name: client-apk
           path: dist
 
+      - name: Convert Markdown to PDF
+        uses: baileyjm02/markdown-to-pdf@v1
+        with:
+          input_dir: docs/USER_MANUAL.md
+          output_dir: dist
+          build_html: false
+
       - name: List Release Files
         run: |
           ls -lR dist
@@ -134,6 +141,7 @@ jobs:
             dist/bitstreamer-linux
             dist/bitstreamer-macos
             dist/client.apk
+            dist/USER_MANUAL.pdf
           draft: false
           prerelease: false
           generate_release_notes: true
