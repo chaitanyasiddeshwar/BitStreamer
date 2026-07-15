@@ -5,10 +5,10 @@ Welcome to BitStreamer! This manual covers everything you need to know to set up
 ---
 
 ## 1. Overview
-BitStreamer is a lightweight, zero-transcode local network media streamer. 
-- **The Server** (run on your PC) serves your media file byte-for-byte over HTTP.
+BitStreamer is a Free, open-source, extremely lightweight, zero-transcode single file local network media streamer with it's own lightweight client App that can be sideloaded into FireTV. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports full bitstream of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site or create an account. You can build and run the whole code from your local machine if you have the right tools.
+- **The Server** (run on your PC/Mac/Linux box) serves your media file byte-for-byte over HTTP plus the client apk. It also supports generation of Chapter and seek-bar thumbnails/preview (like in netflix/youtube) if you have ffmpeg and ffprobe executibles in the path or the same folder as server (see [Chapters & Scrubbing Previews](#chapters--scrubbing-previews-optional) below). Also supports external subtitles with same filename as the movie file.
 - **The Client** (run on your Fire TV) discovers the server automatically, plays the file with hardware video decoding, and bitstreams the audio untouched over HDMI to your TV/AV receiver.
-
+**Note** There is folder support, but it is still in very early stages and experimental - wait till next version for a stable release to use that.
 ---
 
 ## 2. Server Setup & Usage
@@ -55,7 +55,7 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 
 ### Remote Control Mapping
 - **Center / Play-Pause Button**: Play or pause the video.
-- **D-pad Left / Right**: Jump backwards/forwards by one preview interval (default: 30s) and show the scrubbing preview frame.
+- **D-pad Left / Right**: Jump backwards/forwards by one preview interval (--interval, default: 30s) and show the scrubbing preview frame.
 - **Rewind / Fast Forward Buttons**: Continuous seek.
 - **D-pad Up**: Show playback controls.
 - **D-pad Down**: Open the option menus (Audio tracks, Subtitles, Chapters, Stats).

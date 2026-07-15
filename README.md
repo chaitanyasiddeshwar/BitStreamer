@@ -1,4 +1,5 @@
 # BitStreamer
+BitStreamer is a lightweight, zero-transcode local network media streamer with it's own client App that can be sideloaded into FireTV. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports full bitstream of Audio codecs including Dolby TrueHD and DTS-HD (actually only the DTS core because of FireTV limitations), where supported by the FireTV device. The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site. You can build and run the whole code from your local machine if you have the right tools.
 
 Play a movie file from a PC on a Fire TV Stick 4K — video and audio served
 **byte-for-byte, no transcoding**, with the original Dolby Digital / DD+ / Atmos / DTS
