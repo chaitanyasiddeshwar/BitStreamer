@@ -7,6 +7,12 @@ BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **sing
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
 - `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [HDR & Dolby Vision](docs/HDR_DOLBY_VISION.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md) · [remote key map](docs/REMOTE.md)
 
+**Note:** 
+* There is folder support in server to select a folder of movies/videos, but it is still in very early stages and experimental - wait till next version for a stable release to use that.
+* Also check [Known Issues](#known-issues) below to know what the Hardware itself doesn't support
+* This is untested on Nvidia Shield but might work there since it is built for Android TV - if someone does, let me know how it goes
+
+
 ## Supported files
 
 The server only serves file types the Fire TV client (ExoPlayer) can actually read, and

@@ -5,11 +5,14 @@ Welcome to BitStreamer! This manual covers everything you need to know to set up
 ---
 
 ## 1. Overview
-BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site or create an account. You can build and run the whole code from your local machine if you have the right tools.
+BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site for this. You can build and run the whole code from your local machine if you have the right tools.
 - **The Server** (run on your PC/Mac/Linux box) serves your media file byte-for-byte over HTTP plus the client apk. It also supports generation of Chapter and seek-bar thumbnails/preview (like in netflix/youtube) if you have ffmpeg and ffprobe executibles in the path or the same folder as server (see [Chapters & Scrubbing Previews](#chapters--scrubbing-previews-optional) below). Also supports external subtitles with same filename as the movie file.
-- **The Client** (run on your Fire TV) discovers the server automatically, plays the file with hardware video decoding, and bitstreams the audio untouched over HDMI to your TV/AV receiver.
+- **The Client** (run on your Fire TV) discovers the server automatically, plays the file with hardware video decoding, and bitstreams the audio untouched over HDMI to your TV/AV receiver. It also has corresponding features to the server like chapter thumbnails, seek-bar thumbnails depending on whether server has ffmpeg/ffprobe in the PATH/dir.
 
-**Note:** There is folder support in server to select a folder of movies/videos, but it is still in very early stages and experimental - wait till next version for a stable release to use that.
+**Note:** 
+* There is folder support in server to select a folder of movies/videos, but it is still in very early stages and experimental - wait till next version for a stable release to use that.
+* Also check [Known Issues](#5-known-issues) below to know what the Hardware itself doesn't support
+* This is untested on Nvidia Shield but might work there since it is built for Android TV - if someone does, let me know how it goes
 
 ---
 
