@@ -125,7 +125,7 @@ jobs:
       - name: Convert Markdown to PDF
         uses: baileyjm02/markdown-to-pdf@v1
         with:
-          input_dir: docs/USER_MANUAL.md
+          input_path: docs/USER_MANUAL.md
           output_dir: dist
           build_html: false
 
