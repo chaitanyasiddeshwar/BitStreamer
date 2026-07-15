@@ -43,6 +43,16 @@ class DiscoveryActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_discovery)
 
+        findViewById<TextView>(R.id.app_title)?.let { titleView ->
+            val versionName = try {
+                val pInfo = packageManager.getPackageInfo(packageName, 0)
+                pInfo.versionName ?: "1.0.0"
+            } catch (e: Exception) {
+                "1.0.0"
+            }
+            titleView.text = "BitStreamer v$versionName"
+        }
+
         statusView = findViewById(R.id.status)
         listView = findViewById(R.id.server_list)
         detailsView = findViewById(R.id.server_details)

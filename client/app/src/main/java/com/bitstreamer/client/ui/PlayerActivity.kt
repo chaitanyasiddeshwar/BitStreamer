@@ -257,7 +257,7 @@ class PlayerActivity : Activity() {
         val uri = Uri.parse(url)
         baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
-        RemoteLog.init(baseUrl)
+        RemoteLog.init(baseUrl, this)
         // Fetch metadata before playback. Folder mode skips resume/storyboard.
         Thread {
             val a = api

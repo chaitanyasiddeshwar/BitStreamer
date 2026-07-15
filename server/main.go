@@ -31,11 +31,17 @@ func main() {
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
 	keepCache := flag.Bool("keep-cache", false, "keep the thumbnail/storyboard cache on exit instead of deleting it")
 	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("BitStreamer v%s (build %s)\n", Version, buildStamp())
+		os.Exit(0)
+	}
 
 	if flag.NArg() != 1 {
 		flag.Usage()
@@ -100,7 +106,7 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("BitStreamer (build %s)\n", buildStamp())
+	fmt.Printf("BitStreamer v%s (build %s)\n", Version, buildStamp())
 	if app.folderMode {
 		fmt.Printf("Serving folder %q (browse it from the client)\n\n", app.rootDir)
 	} else {

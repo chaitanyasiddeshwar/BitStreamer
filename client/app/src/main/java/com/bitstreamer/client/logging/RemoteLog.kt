@@ -1,5 +1,6 @@
 package com.bitstreamer.client.logging
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import java.net.HttpURLConnection
@@ -25,17 +26,24 @@ object RemoteLog {
 
     /** [serverBaseUrl] e.g. "http://192.168.1.20:46898". Safe to call repeatedly. */
     @Synchronized
-    fun init(serverBaseUrl: String) {
+    fun init(serverBaseUrl: String, context: Context) {
         endpoint = URL("$serverBaseUrl/log")
         if (!started) {
             started = true
             Thread(::loop, "RemoteLog").apply { isDaemon = true }.start()
             installCrashHandler()
         }
+        val clientVersion = try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
         d("RemoteLog", "---- session start ----")
         d(
             "RemoteLog",
-            "device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), " +
+            "client version: $clientVersion, " +
+                "device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), " +
                 "Android API ${Build.VERSION.SDK_INT}, build ${Build.DISPLAY}"
         )
     }

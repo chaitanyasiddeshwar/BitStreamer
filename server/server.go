@@ -353,6 +353,7 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]any{
 		"v":          1,
+		"version":    Version,
 		"mode":       "file",
 		"name":       a.displayName,
 		"file":       a.mediaName,
@@ -383,10 +384,11 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
 	if rel == "" {
 		json.NewEncoder(w).Encode(map[string]any{
-			"v":    1,
-			"mode": "folder",
-			"name": a.displayName,
-			"file": filepath.Base(a.rootDir),
+			"v":       1,
+			"version": Version,
+			"mode":    "folder",
+			"name":    a.displayName,
+			"file":    filepath.Base(a.rootDir),
 		})
 		return
 	}
@@ -406,6 +408,7 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]any{
 		"v":         1,
+		"version":   Version,
 		"mode":      "folder",
 		"file":      filepath.Base(full),
 		"size":      fi.Size(),

@@ -16,6 +16,7 @@ type discoveryReply struct {
 	App      string `json:"app"`
 	Name     string `json:"name"`
 	HTTPPort int    `json:"httpPort"`
+	Version  string `json:"version"`
 }
 
 // runDiscovery answers UDP discovery probes until the process exits.
@@ -32,6 +33,7 @@ func runDiscovery(udpPort int, displayName string, httpPort int) error {
 		App:      "bitstreamer",
 		Name:     displayName,
 		HTTPPort: httpPort,
+		Version:  Version,
 	})
 	if err != nil {
 		return err
