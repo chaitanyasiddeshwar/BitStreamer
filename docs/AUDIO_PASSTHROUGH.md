@@ -42,6 +42,43 @@ Also required: Fire TV **Settings → Display & Sounds → Audio → Surround So
 Available"** (the default). If set to PCM/Stereo, no passthrough will ever negotiate —
 detect this (capabilities will report PCM-only) and tell the user in the error/overlay.
 
+### 2a. Other streamers (informational; same standard `AudioTrack` path)
+
+BitStreamer installs and runs on any Android TV device, and always uses the standard
+`AudioTrack` passthrough path (never software audio decode, never the Kodi IEC hack). So a
+device's *hardware* HD-audio ceiling and what BitStreamer can *reach* are two different
+things — Kodi-only formats are, for us, unreachable. Ranked best→worst for a DTS-heavy
+library:
+
+| Device | DTS core | DTS-HD MA / DTS:X | TrueHD | DD+/Atmos | Reachable by BitStreamer |
+|--------|----------|-------------------|--------|-----------|--------------------------|
+| **Nvidia Shield TV / Pro** | ✅ | ✅ (standard path) | ✅ | ✅ | **All of it, natively** — no IEC hack needed |
+| **Fire TV Cube 3rd gen** | ✅ | Kodi IEC packer only | ✅ | ✅ | DTS **core** only (via `DtsCoreAudioSink`); MA/:X out of reach |
+| **Fire TV Stick 4K / 4K Max** | ✅ | Kodi IEC packer only | 4K Max 2nd gen only | ✅ | Same as Cube: DTS **core** only |
+| **Google TV Streamer (2024)** | ⚠️ unreliable | ❌ decoded to PCM | ❌ | ✅ | **DD+/Atmos only** — DTS may have *no* passthrough path |
+
+Key traps:
+
+- **Fire TV Cube 3rd gen** *advertises* `ENCODING_DTS_HD` (firmware 7.6.1.3 added DTS-HD/
+  TrueHD passthrough), but the direct DTS-HD AudioTrack opens and then outputs **silence** —
+  full MA/:X works only through Kodi's IEC packer. This is exactly why `DtsCoreAudioSink`
+  forces core extraction regardless of the advertisement and `PREFER_DIRECT_DTS_HD` defaults
+  to `false` (see §7). Net for BitStreamer: reliable 5.1 DTS core.
+- **Google TV Streamer** routes everything through Dolby's **MS12** software stack and
+  pre-processes internally instead of bitstreaming (a regression from the old Chromecast
+  with Google TV, which passed audio untouched). TrueHD/DTS-HD/DTS:X are decoded to PCM, and
+  even plain DTS is unreliable/greyed-out — so DTS titles may hit our "fail with a specific
+  message" branch (§5) rather than play. The Kodi IEC workaround does **not** rescue it.
+  DD+/Atmos is fine. Worst mainstream streamer for our use case.
+- **Nvidia Shield** is the only common device that passes full lossless DTS/TrueHD through
+  the *standard* path, so BitStreamer bitstreams everything on it with no special-casing.
+
+Sources: [AFTVnews — Cube 3 gains DTS-HD/TrueHD passthrough](https://www.aftvnews.com/fire-tv-cube-gains-improved-upscaling-as-well-as-dts-dts-hd-and-dolby-true-hd-audio-passthrough-in-latest-software-update/),
+[AFTVnews — Google TV Streamer lacks TrueHD/DTS-HD/DTS:X passthrough](https://www.aftvnews.com/google-tv-streamer-does-not-support-dolby-truehd-dts-hd-or-dtsx-audio-passthrough/),
+[FlatpanelsHD PSA](https://www.flatpanelshd.com/news.php?subaction=showfull&id=1739522759),
+[Kodi Forum — Cube 3 HD-audio IEC packer](https://forum.kodi.tv/showthread.php?tid=371883&page=6).
+As always: trust runtime-reported capabilities, not this table (§3).
+
 ## 3. Capability detection on Fire OS
 
 Per Amazon's [Dolby integration guidelines](https://developer.amazon.com/docs/fire-tv/dolby-integration-guidelines.html),
