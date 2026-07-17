@@ -303,9 +303,10 @@ func dolbyVisionAdvisory(mediaPath string) string {
 	out := noDVPath(mediaPath)
 	return "" +
 		"\n⚠ Dolby Vision Profile 7 detected.\n" +
-		"  If the video plays, ignore this. If you get audio but a BLACK screen\n" +
-		"  (Profile 7 \"FEL\"), Fire TV cannot decode it. Convert to HDR10 once —\n" +
-		"  lossless and fast (no re-encode), keeps all audio/subtitles:\n\n" +
+		"  If the video plays, ignore this (it might be Profile 7 \"MEL\").\n" +
+		"  If you get audio but a BLACK screen (Profile 7 \"FEL\"), try running the server with the '-stripdv' flag first:\n\n" +
+		"    bitstreamer -stripdv ...\n\n" +
+		"  If that also doesn't work, losslessly convert the file to HDR10 (no re-encode):\n\n" +
 		fmt.Sprintf("    ffmpeg -i \"%s\" -map 0 -c copy -bsf:v \"filter_units=remove_types=62|63\" \"%s\"\n\n", mediaPath, out) +
 		"  Then run bitstreamer on the *_no_dv file instead.\n"
 }

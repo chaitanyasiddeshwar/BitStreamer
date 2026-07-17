@@ -39,35 +39,29 @@ Layer (EL) and RPU metadata, combined in one video track.
 enhancement-layer parsing (`dovi_tool`), which we don't ship. So the server can't
 auto-classify — it warns for all Profile 7 and lets the outcome tell you which you have.
 
-### What we tried and reverted
+### On-the-Fly Fallback: The `-stripdv` Server Flag
 
-Forcing Media3 to decode the HDR10 base layer instead of DV (a custom `MediaCodecSelector`
-returning no DV decoder → Media3's HEVC fallback) was implemented and **reverted**:
+To handle Profile 7 FEL files (like *Titanic*) on the fly without permanent file conversion, you can run the server with the `-stripdv` command-line flag:
 
-- On Profile 7 FEL it produced **no video decoder at all** → `ERROR_CODE_TIMEOUT` (worse than
-  the black screen).
-- It **broke** Profile 7 MEL and Profile 8 DV that play fine natively (they'd time out too).
-
-So the native DV decoder is used for everything. See [MEDIA3.md](MEDIA3.md).
-
-### The fix for a FEL file: strip DV → HDR10 (lossless)
-
-When started with a Profile 7 file, the server **prints a ready-to-run ffmpeg command**. It
-removes the DV RPU (NAL type 62) and enhancement layer (NAL type 63), leaving the HDR10 base
-— `-c copy`, so it's fast and lossless and keeps every audio/subtitle track:
-
+```cmd
+bitstreamer.exe -stripdv "Titanic.mkv"
 ```
+
+When this flag is active:
+1. **Decoder Exclusions:** The client player intercepts the decoder selection pipeline, maps the track MIME type from `video/dolby-vision` to `video/hevc`, clears the Dolby Vision `codecs` metadata, and **excludes all hardware Dolby Vision decoders** (filtering out any decoder containing `"dolby"` or `"dovi"`). This forces the device to bind a standard HEVC/HDR10 hardware decoder.
+2. **On-the-Fly NAL Stripping:** As the stream plays, the client player intercepts incoming video packets (`onQueueInputBuffer`) and uses a custom real-time **Annex B parser** to strip NAL units of type `62` (RPU) and `63` (EL) before they reach the hardware decoder. This delivers a clean HEVC/HDR10 stream to the standard decoder, preventing the display chip from switching the TV into Dolby Vision mode (which causes the black screen).
+3. **Automatic HEVC Mapping for HDR10+ (No Flags Required):** Hybrid files that contain **HDR10+ metadata** (such as *Thunderbolts\\* and *The Running Man*) will **always** trigger the HEVC fallback (`fallbackToHdr10 = true`) by default. This forces them to decode using standard HEVC and display in HDR10+ mode automatically without requiring the `-stripdv` flag.
+4. **Preserving Native Playback for MEL:** For normal Dolby Vision Profile 7 files (like *Aquaman*), if `-stripdv` is not passed to the server, the fallback logic remains disabled, allowing them to play natively in Dolby Vision. If `-stripdv` is passed, they fall back to standard HEVC/HDR10.
+
+### Lossless Offline Conversion (Alternative Fix)
+
+If the on-the-fly `-stripdv` fallback doesn't work or is not preferred, you can permanently and losslessly strip the Dolby Vision layers from the file using `ffmpeg`. This takes only a few seconds as it is a direct stream copy (`-c copy`):
+
+```cmd
 ffmpeg -i "Movie.mkv" -map 0 -c copy -bsf:v "filter_units=remove_types=62|63" "Movie_no_dv.mkv"
 ```
 
-Then serve `Movie_no_dv.mkv` — it plays as HDR10. (This also converts any Profile 8 DV to
-HDR10, but that isn't needed since Profile 8 plays as-is. Don't use it on **Profile 5** — its
-base layer isn't HDR10-compatible, so the result would have wrong colours.)
-
-A heavier, fully-automatic server-side version (`--strip-dv`: detect FEL, run the strip into
-`cache/`, serve the result) was scoped and deferred — it needs `dovi_tool`, ~file-sized scratch
-space, and minutes of pre-processing per title, for a narrow benefit. The printed command is
-the pragmatic answer.
+Then serve `Movie_no_dv.mkv` — it plays in standard HDR10 mode. (Do not use this on **Profile 5** — its base layer is not HDR10-compatible, so the colors will be incorrect.)
 
 ## Thumbnails and HDR
 
