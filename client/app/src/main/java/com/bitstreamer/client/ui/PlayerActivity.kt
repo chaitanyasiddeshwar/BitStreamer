@@ -94,6 +94,7 @@ class PlayerActivity : Activity() {
     // Authoritative colour info from the server's ffprobe.
     private var srcHdr = false
     private var srcHdr10Plus = false
+    private var srcMime = ""
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
@@ -285,6 +286,7 @@ class PlayerActivity : Activity() {
                     storyboard = sb
                     srcHdr = info?.videoHdr ?: false
                     srcHdr10Plus = info?.videoHdr10Plus ?: false
+                    srcMime = info?.mime ?: ""
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
@@ -345,10 +347,14 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
         RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV")
-        val fallbackToHdr10 = srcHdr10Plus || (srcDvProfile == 7 && srcStripDV)
+        val fallbackToHdr10 = (srcDvProfile == 7) && (srcHdr10Plus || srcStripDV)
         val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
-        playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
+        playerView.player = if (isImage(currentTitle)) {
+            exoPlayer
+        } else {
+            PlayerFactory.withoutSpeedControls(exoPlayer)
+        }
         setupControls()
 
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
@@ -455,6 +461,13 @@ class PlayerActivity : Activity() {
                 }
                 if (playbackState == Player.STATE_ENDED) {
                     Thread { api?.postPosition(0) }.start() // finished: clear resume point
+                    if (folderMode && isImage(currentTitle)) {
+                        val nextIndex = playlistIndex + 1
+                        val urls = playlistUrls
+                        if (urls != null && nextIndex < urls.size) {
+                            playAt(nextIndex)
+                        }
+                    }
                 }
                 updateOverlay()
             }
@@ -474,9 +487,21 @@ class PlayerActivity : Activity() {
         // Images need an explicit duration to render; give a long one so they
         // stay until the user navigates (folder mode).
         val mediaItem = if (isImage(currentTitle)) {
-            MediaItem.Builder().setUri(url).setImageDurationMs(IMAGE_DURATION_MS).build()
+            MediaItem.Builder()
+                .setUri(url)
+                .setMimeType(if (srcMime.isNotEmpty()) srcMime else "image/jpeg")
+                .setImageDurationMs(IMAGE_DURATION_MS)
+                .build()
         } else {
-            MediaItem.Builder().setUri(url).setSubtitleConfigurations(subConfigs).build()
+            MediaItem.Builder()
+                .setUri(url)
+                .apply {
+                    if (srcMime.isNotEmpty() && srcMime != "application/octet-stream") {
+                        setMimeType(srcMime)
+                    }
+                }
+                .setSubtitleConfigurations(subConfigs)
+                .build()
         }
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
@@ -704,6 +729,42 @@ class PlayerActivity : Activity() {
             .setView(listView)
             .create()
         chaptersDialog?.show()
+
+        val currentPos = p.currentPosition
+        val activeIndex = chapters.indexOfLast { it.startMs <= currentPos }.coerceAtLeast(0)
+        listView.post {
+            val listViewHeight = listView.height
+            val firstChild = listView.getChildAt(0)
+            val rowHeight = firstChild?.height ?: 180
+            val offset = (listViewHeight - rowHeight) / 2
+            listView.setSelectionFromTop(activeIndex, offset)
+            listView.requestFocus()
+        }
+    }
+
+    private fun seekToNextChapter() {
+        val p = player ?: return
+        if (chapters.isEmpty()) return
+        val currentPos = p.currentPosition
+        val nextChapter = chapters.firstOrNull { it.startMs > currentPos + 1000L }
+        if (nextChapter != null) {
+            p.seekTo(nextChapter.startMs)
+            p.playWhenReady = true
+        }
+    }
+
+    private fun seekToPrevChapter() {
+        val p = player ?: return
+        if (chapters.isEmpty()) return
+        val currentPos = p.currentPosition
+        val activeIndex = chapters.indexOfLast { it.startMs <= currentPos }.coerceAtLeast(0)
+        val targetIndex = if (currentPos - chapters[activeIndex].startMs < 3000L) {
+            (activeIndex - 1).coerceAtLeast(0)
+        } else {
+            activeIndex
+        }
+        p.seekTo(chapters[targetIndex].startMs)
+        p.playWhenReady = true
     }
 
     private fun enableStoryboard(sb: ServerApi.Storyboard) {
@@ -835,7 +896,7 @@ class PlayerActivity : Activity() {
         // activating an Audio/Subtitles/Chapters/Stats button. Images have no
         // play/pause. Swallow DOWN+UP so no stray click reaches the controller.
         if ((event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER) &&
-            !isImage(currentTitle) && !playerView.isControllerFullyVisible
+            !playerView.isControllerFullyVisible
         ) {
             val p = player
             if (p != null &&
@@ -847,14 +908,35 @@ class PlayerActivity : Activity() {
                 return true
             }
         }
-        // Folder mode: RW/FF step to the previous/next file; images also use
-        // D-pad left/right (they have no meaningful seek bar).
-        if (folderMode && playlistUrls != null && event.action == KeyEvent.ACTION_DOWN) {
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { playAt(playlistIndex + 1); return true }
-                KeyEvent.KEYCODE_MEDIA_REWIND -> { playAt(playlistIndex - 1); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> if (isImage(currentTitle)) { playAt(playlistIndex + 1); return true }
-                KeyEvent.KEYCODE_DPAD_LEFT -> if (isImage(currentTitle)) { playAt(playlistIndex - 1); return true }
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            if (isImage(currentTitle)) {
+                if (folderMode && playlistUrls != null) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { playAt(playlistIndex + 1); return true }
+                        KeyEvent.KEYCODE_MEDIA_REWIND -> { playAt(playlistIndex - 1); return true }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> { playAt(playlistIndex + 1); return true }
+                        KeyEvent.KEYCODE_DPAD_LEFT -> { playAt(playlistIndex - 1); return true }
+                    }
+                }
+            } else {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                        if (chapters.isNotEmpty()) {
+                            seekToNextChapter()
+                        } else {
+                            player?.let { it.seekTo((it.currentPosition + 30_000).coerceAtMost(it.duration)) }
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                        if (chapters.isNotEmpty()) {
+                            seekToPrevChapter()
+                        } else {
+                            player?.let { it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0)) }
+                        }
+                        return true
+                    }
+                }
             }
         }
         return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
@@ -899,6 +981,9 @@ class PlayerActivity : Activity() {
         row("state", playbackStateName(p?.playbackState) + if (p?.isPlaying == true) " (playing)" else " (paused)")
         if (p != null && p.duration > 0) {
             row("position", "${formatTime(p.currentPosition)} / ${formatTime(p.duration)}  ${p.bufferedPercentage}% buf")
+            val bps = PlayerFactory.getBandwidthMeter(this).bitrateEstimate
+            val mbps = bps.toDouble() / 1_000_000.0
+            row("bandwidth", String.format("%.2f Mbps", mbps))
         }
 
         sb.append("— video —\n")
@@ -1048,7 +1133,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_PL_TITLES = "playlistTitles"
         const val EXTRA_PL_INFO_PATHS = "playlistInfoPaths"
         const val EXTRA_PL_INDEX = "playlistIndex"
-        private const val IMAGE_DURATION_MS = 3_600_000L // 1h: image stays until user navigates
+        private const val IMAGE_DURATION_MS = 5_000L // 5 seconds duration for image files
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L
         // Subtitle sizing/placement (fractions of the player-view height). Text

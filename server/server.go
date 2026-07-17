@@ -51,6 +51,9 @@ type app struct {
 const folderMaxDepth = 3
 
 func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
+	if len(mediaPath) == 2 && mediaPath[1] == ':' {
+		mediaPath += string(os.PathSeparator)
+	}
 	info, err := os.Stat(mediaPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open %s: %w", mediaPath, err)
@@ -268,7 +271,11 @@ func (a *app) resolvePath(rel string) (string, bool) {
 	if err1 != nil || err2 != nil {
 		return "", false
 	}
-	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(os.PathSeparator)) {
+	prefix := rootAbs
+	if !strings.HasSuffix(prefix, string(os.PathSeparator)) {
+		prefix = prefix + string(os.PathSeparator)
+	}
+	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, prefix) {
 		return "", false
 	}
 	return full, true
@@ -322,11 +329,7 @@ func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
 				dirs = append(dirs, item{Name: name, Dir: true})
 			}
 		} else if isPlayable(name) {
-			size := int64(0)
-			if info, err := e.Info(); err == nil {
-				size = info.Size()
-			}
-			files = append(files, item{Name: name, Size: size, Mime: mimeForPath(name)})
+			files = append(files, item{Name: name, Size: 0, Mime: mimeForPath(name)})
 		}
 	}
 	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name) })
@@ -417,6 +420,10 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	if !pok {
 		probe = mediaProbe{dvProfile: -1}
 	}
+	chapters := chaptersFor(full)
+	if chapters == nil {
+		chapters = []Chapter{}
+	}
 	json.NewEncoder(w).Encode(map[string]any{
 		"v":           1,
 		"version":     Version,
@@ -424,6 +431,7 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		"file":        filepath.Base(full),
 		"size":        fi.Size(),
 		"mime":        mimeForPath(full),
+		"chapters":    chapters,
 		"video":       a.videoInfo(probe),
 		"audioTracks": probe.audioTracks,
 		"subtitles":   subsOrEmpty(folderSubtitlesFor(full, rel)),

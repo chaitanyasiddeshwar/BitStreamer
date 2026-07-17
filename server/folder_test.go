@@ -133,14 +133,18 @@ func TestFolderStreamAndInfo(t *testing.T) {
 	}
 	defer ir.Body.Close()
 	var info struct {
-		Mode string `json:"mode"`
-		File string `json:"file"`
-		Mime string `json:"mime"`
-		Size int64  `json:"size"`
+		Mode     string    `json:"mode"`
+		File     string    `json:"file"`
+		Mime     string    `json:"mime"`
+		Size     int64     `json:"size"`
+		Chapters []Chapter `json:"chapters"`
 	}
 	json.NewDecoder(ir.Body).Decode(&info)
 	if info.Mode != "folder" || info.File != "m1.mkv" || info.Mime != "video/x-matroska" {
 		t.Errorf("per-file /info unexpected: %+v", info)
+	}
+	if info.Chapters == nil {
+		t.Error("expected chapters field to be present in /info response")
 	}
 
 	// Root /info marks folder mode.
@@ -169,7 +173,10 @@ func TestFolderPathTraversalIsConfined(t *testing.T) {
 		}
 	}
 	// A traversal stream request must not return outside content.
-	resp, _ := http.Get(srv.URL + "/stream?path=../../../etc/hosts")
+	resp, err := http.Get(srv.URL + "/stream?path=../../../etc/hosts")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if resp.StatusCode == http.StatusOK {
 		t.Error("traversal stream unexpectedly returned 200")
 	}

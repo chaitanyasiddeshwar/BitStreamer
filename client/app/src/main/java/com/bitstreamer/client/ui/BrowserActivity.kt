@@ -38,6 +38,7 @@ class BrowserActivity : Activity() {
     private var currentPath = ""
     private val entries = mutableListOf<ServerApi.FolderEntry>()
     private lateinit var adapter: EntryAdapter
+    private var selectOnLoad: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +51,11 @@ class BrowserActivity : Activity() {
         titleView = findViewById(R.id.browser_title)
         pathView = findViewById(R.id.browser_path)
         listView = findViewById(R.id.browser_list)
+
+        if (savedInstanceState != null) {
+            currentPath = savedInstanceState.getString("currentPath", "")
+            selectOnLoad = savedInstanceState.getString("selectOnLoad")
+        }
 
         adapter = EntryAdapter()
         listView.adapter = adapter
@@ -67,10 +73,24 @@ class BrowserActivity : Activity() {
         loadPath()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("currentPath", currentPath)
+        val position = listView.selectedItemPosition
+        if (position != AdapterView.INVALID_POSITION) {
+            val entry = entries.getOrNull(position)
+            if (entry != null) {
+                outState.putString("selectOnLoad", entry.name)
+            }
+        }
+    }
+
     override fun onBackPressed() {
         if (currentPath.isEmpty()) {
             super.onBackPressed()
         } else {
+            val lastSlash = currentPath.lastIndexOf('/')
+            selectOnLoad = if (lastSlash < 0) currentPath else currentPath.substring(lastSlash + 1)
             currentPath = parent(currentPath)
             loadPath()
         }
@@ -172,7 +192,11 @@ class BrowserActivity : Activity() {
                 adapter.notifyDataSetChanged()
                 if (entries.isNotEmpty()) {
                     listView.requestFocus()
-                    listView.setSelection(0)
+                    val targetIndex = selectOnLoad?.let { targetName ->
+                        entries.indexOfFirst { it.name == targetName }
+                    }?.takeIf { it >= 0 } ?: 0
+                    listView.setSelection(targetIndex)
+                    selectOnLoad = null
                 }
             }
         }.start()

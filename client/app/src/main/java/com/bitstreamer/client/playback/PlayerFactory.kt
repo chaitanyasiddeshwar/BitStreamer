@@ -28,12 +28,26 @@ import androidx.media3.decoder.DecoderInputBuffer
 import java.nio.ByteBuffer
 import java.util.ArrayList
 
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+
 /**
  * The single place ExoPlayer is configured. The choices here exist to keep
  * audio passthrough (bitstreaming) intact — see docs/AUDIO_PASSTHROUGH.md §4
  * before changing anything.
  */
 object PlayerFactory {
+
+    private var bandwidthMeter: DefaultBandwidthMeter? = null
+
+    @OptIn(UnstableApi::class)
+    fun getBandwidthMeter(context: Context): DefaultBandwidthMeter {
+        var meter = bandwidthMeter
+        if (meter == null) {
+            meter = DefaultBandwidthMeter.Builder(context.applicationContext).build()
+            bandwidthMeter = meter
+        }
+        return meter
+    }
 
     @OptIn(UnstableApi::class)
     fun create(context: Context, fallbackToHdr10: Boolean = false): ExoPlayer {
@@ -86,7 +100,15 @@ object PlayerFactory {
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
+        val meter = getBandwidthMeter(context)
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context)
+            .setTransferListener(meter)
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
+
         return ExoPlayer.Builder(context, renderersFactory)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setBandwidthMeter(meter)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
