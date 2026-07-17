@@ -65,7 +65,7 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 | **HLG** (Hybrid Log Gamma) | ✅ Yes | Direct native playback. |
 | **Dolby Vision Profile 5** | ✅ Yes | Direct native playback (IPTPQc2 colorspace). |
 | **Dolby Vision Profile 8.1** | ✅ Yes | Direct native playback (even if file also carries HDR10+ metadata, e.g. *Ford v Ferrari*). |
-| **Dolby Vision Profile 7 MEL** | ✅ Yes | Direct native playback (base layer is a standard HDR10 stream). |
+| **Dolby Vision Profile 7 MEL** | ✅ Yes | Direct native playback of the base layer which is a standard HDR10/HDR10+ stream. |
 | **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays perfectly using our on-the-fly Annex B NAL stripping fallback (`-stripdv` server flag or `Strip DV and Play` client menu option). |
 
 
