@@ -30,6 +30,7 @@ func main() {
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
 	keepCache := flag.Bool("keep-cache", false, "keep the thumbnail/storyboard cache on exit instead of deleting it")
+	skipPreviews := flag.Bool("skip-previews", false, "skip ffmpeg seek bar previews (storyboard) generation")
 	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
@@ -172,9 +173,13 @@ func main() {
 			fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
 			go app.story.generate()
 		} else if app.story.ffmpegPath != "" {
-			// ffmpeg is present but the storyboard is still off: the only other
-			// requirement is a duration, which comes from ffprobe.
-			fmt.Println("Scrubbing previews: DISABLED — couldn't read the media duration (needs ffprobe).")
+			if *skipPreviews {
+				fmt.Println("Scrubbing previews: skipped by user request (-skip-previews active).")
+			} else {
+				// ffmpeg is present but the storyboard is still off: the only other
+				// requirement is a duration, which comes from ffprobe.
+				fmt.Println("Scrubbing previews: DISABLED — couldn't read the media duration (needs ffprobe).")
+			}
 		}
 	}
 

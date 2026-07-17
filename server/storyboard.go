@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"image"
 	"image/draw"
@@ -47,10 +48,19 @@ type storyboard struct {
 }
 
 func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool, cacheDir string) *storyboard {
-	// Per-session: wipe any leftovers from a previous run and start fresh.
-	os.RemoveAll(cacheDir)
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		cacheDir = "" // disables the storyboard (enabled() checks cacheDir)
+	skipPreviews := false
+	if f := flag.Lookup("skip-previews"); f != nil && f.Value.String() == "true" {
+		skipPreviews = true
+	}
+
+	if skipPreviews {
+		cacheDir = ""
+	} else {
+		// Per-session: wipe any leftovers from a previous run and start fresh.
+		os.RemoveAll(cacheDir)
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			cacheDir = "" // disables the storyboard (enabled() checks cacheDir)
+		}
 	}
 	return &storyboard{
 		ffmpegPath: findFFmpeg(),

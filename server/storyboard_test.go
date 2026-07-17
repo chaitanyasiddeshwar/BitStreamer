@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,5 +105,19 @@ func TestStoryboardEndpoints(t *testing.T) {
 	defer img.Body.Close()
 	if img.StatusCode != http.StatusOK || img.Header.Get("Content-Type") != "image/jpeg" {
 		t.Errorf("sheet 0 = %d %s", img.StatusCode, img.Header.Get("Content-Type"))
+	}
+}
+
+func TestStoryboardSkipPreviews(t *testing.T) {
+	if f := flag.Lookup("skip-previews"); f == nil {
+		flag.Bool("skip-previews", false, "")
+	}
+	flag.Set("skip-previews", "true")
+	defer flag.Set("skip-previews", "false")
+
+	path := filepath.Join("testdata", "chapters_sample.mkv")
+	sb := newStoryboard(path, 30000, 5000, false, t.TempDir())
+	if sb.enabled() {
+		t.Error("expected storyboard to be disabled when -skip-previews is true")
 	}
 }
