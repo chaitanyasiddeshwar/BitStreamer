@@ -1,13 +1,16 @@
 package com.bitstreamer.client.ui
 
+import android.app.AlertDialog
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.ListView
@@ -71,6 +74,88 @@ class BrowserActivity : Activity() {
             currentPath = parent(currentPath)
             loadPath()
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            val position = listView.selectedItemPosition
+            if (position != AdapterView.INVALID_POSITION) {
+                val entry = entries.getOrNull(position)
+                if (entry != null && !entry.isDir) {
+                    fetchInfoAndShowMenu(entry)
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun fetchInfoAndShowMenu(entry: ServerApi.FolderEntry) {
+        val rel = join(currentPath, entry.name)
+        val progressDialog = AlertDialog.Builder(this)
+            .setMessage("Reading file metadata...")
+            .setCancelable(false)
+            .show()
+
+        Thread {
+            val info = try {
+                api.getInfo(rel)
+            } catch (e: Exception) {
+                null
+            }
+            mainHandler.post {
+                progressDialog.dismiss()
+                if (info != null) {
+                    if (info.dvProfile >= 0) {
+                        showFileMenu(entry)
+                    } else {
+                        android.widget.Toast.makeText(this, "Options menu is only available for Dolby Vision files.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    android.widget.Toast.makeText(this, "Failed to read file metadata.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun showFileMenu(entry: ServerApi.FolderEntry) {
+        val options = arrayOf("Play Normally", "Strip DV and Play")
+        AlertDialog.Builder(this)
+            .setTitle(entry.name)
+            .setItems(options) { dialog, which ->
+                dialog.dismiss()
+                if (which == 1) {
+                    playFileWithStripDV(entry)
+                } else {
+                    playFile(entry)
+                }
+            }
+            .show()
+    }
+
+    private fun playFileWithStripDV(selected: ServerApi.FolderEntry) {
+        val files = entries.filter { !it.isDir }
+        val index = files.indexOfFirst { it.name == selected.name }.coerceAtLeast(0)
+        val urls = ArrayList<String>(files.size)
+        val titles = ArrayList<String>(files.size)
+        val infoPaths = ArrayList<String>(files.size)
+        for (f in files) {
+            val rel = join(currentPath, f.name)
+            urls.add(api.streamUrlForPath(rel))
+            titles.add(f.name)
+            infoPaths.add(rel)
+        }
+        startActivity(Intent(this, PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_FOLDER_MODE, true)
+            putExtra(PlayerActivity.EXTRA_URL, urls[index])
+            putExtra(PlayerActivity.EXTRA_TITLE, titles[index])
+            putExtra(PlayerActivity.EXTRA_INFO_PATH, infoPaths[index])
+            putStringArrayListExtra(PlayerActivity.EXTRA_PL_URLS, urls)
+            putStringArrayListExtra(PlayerActivity.EXTRA_PL_TITLES, titles)
+            putStringArrayListExtra(PlayerActivity.EXTRA_PL_INFO_PATHS, infoPaths)
+            putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
+            putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+        })
     }
 
     private fun loadPath() {

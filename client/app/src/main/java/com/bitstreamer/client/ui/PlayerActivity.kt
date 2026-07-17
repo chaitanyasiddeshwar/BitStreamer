@@ -98,6 +98,7 @@ class PlayerActivity : Activity() {
     private var srcColorSpace = ""
     private var srcDvProfile = -1
     private var srcStripDV = false
+    private var forceStripDV = false
      private var srcVideoBitrate = 0L
     private var srcAudioBitrate = 0L
     private var srcVideoCodec = ""
@@ -265,6 +266,7 @@ class PlayerActivity : Activity() {
         playlistTitles = intent.getStringArrayListExtra(EXTRA_PL_TITLES)
         playlistInfoPaths = intent.getStringArrayListExtra(EXTRA_PL_INFO_PATHS)
         playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
+        forceStripDV = intent.getBooleanExtra(EXTRA_FORCE_STRIP_DV, false)
         val uri = Uri.parse(url)
         baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
@@ -286,7 +288,7 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
-                    srcStripDV = info?.stripDV ?: false
+                    srcStripDV = forceStripDV || (info?.stripDV ?: false)
                      srcVideoBitrate = info?.videoBitrate ?: 0L
                     srcAudioBitrate = info?.audioBitrate ?: 0L
                     srcVideoCodec = info?.videoCodec ?: ""
@@ -1041,6 +1043,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_FOLDER_MODE = "folderMode"
         const val EXTRA_INFO_PATH = "infoPath"
+        const val EXTRA_FORCE_STRIP_DV = "forceStripDV"
         const val EXTRA_PL_URLS = "playlistUrls"
         const val EXTRA_PL_TITLES = "playlistTitles"
         const val EXTRA_PL_INFO_PATHS = "playlistInfoPaths"

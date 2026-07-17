@@ -1,5 +1,6 @@
 package com.bitstreamer.client.ui
 
+import android.app.AlertDialog
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -7,6 +8,7 @@ import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
@@ -155,6 +157,49 @@ class DiscoveryActivity : Activity() {
                 putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
             })
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            val position = listView.selectedItemPosition
+            if (position != AdapterView.INVALID_POSITION) {
+                val server = servers.getOrNull(position)
+                if (server != null && infoByHost[server.host]?.mode != "folder") {
+                    val info = infoByHost[server.host]
+                    if (info != null && info.dvProfile >= 0) {
+                        showFileMenu(server)
+                        return true
+                    } else {
+                        android.widget.Toast.makeText(this, "Options menu is only available for Dolby Vision files.", android.widget.Toast.LENGTH_SHORT).show()
+                        return true
+                    }
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun showFileMenu(server: DiscoveryClient.Server) {
+        val options = arrayOf("Play Normally", "Strip DV and Play")
+        AlertDialog.Builder(this)
+            .setTitle(server.file.ifEmpty { server.name })
+            .setItems(options) { dialog, which ->
+                dialog.dismiss()
+                if (which == 1) {
+                    playWithStripDV(server)
+                } else {
+                    play(server)
+                }
+            }
+            .show()
+    }
+
+    private fun playWithStripDV(server: DiscoveryClient.Server) {
+        startActivity(Intent(this, PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)
+            putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
+            putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+        })
     }
 
     // ---- details table ----

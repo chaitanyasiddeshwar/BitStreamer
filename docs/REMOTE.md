@@ -23,7 +23,9 @@ handles them in `PlayerActivity.dispatchKeyEvent` and via Media3's `PlayerView` 
 
 **Practical takeaway:** on a stock Fire TV remote, **Menu is the only genuinely "spare"
 button** — everything else is a navigation/transport key the player needs, or a system key
-apps can't intercept. That's why the stats overlay is on Menu.
+apps can't intercept. 
+* **In File/Server Lists:** Pressing **Menu (≡)** brings up an options menu: `Play Normally` or `Strip DV and Play` (forcing HEVC/HDR10 fallback for Profile 7 files).
+* **In Playback:** Pressing **Menu (≡)** toggles the "stats for nerds" overlay.
 
 ## BitStreamer player key map
 
