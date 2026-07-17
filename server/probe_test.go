@@ -45,3 +45,23 @@ func TestDolbyVisionAdvisoryContent(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractBitrate(t *testing.T) {
+	cases := []struct {
+		bitRate string
+		tags    map[string]string
+		want    int64
+	}{
+		{"123456", nil, 123456},
+		{"", map[string]string{"BPS": "654321"}, 654321},
+		{"N/A", map[string]string{"BPS-eng": "98765"}, 98765},
+		{"invalid", map[string]string{"bps": "123"}, 123},
+		{"", nil, 0},
+	}
+	for _, tc := range cases {
+		got := extractBitrate(tc.bitRate, tc.tags)
+		if got != tc.want {
+			t.Errorf("extractBitrate(%q, %v) = %d, want %d", tc.bitRate, tc.tags, got, tc.want)
+		}
+	}
+}

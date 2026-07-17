@@ -21,6 +21,17 @@ class ServerApi(private val baseUrl: String) {
     /** A sidecar subtitle file served alongside the movie (e.g. movie1.en.srt). */
     data class SubtitleTrack(val url: String, val label: String, val lang: String, val mime: String)
 
+    /** An audio track parsed by the server. */
+    data class AudioTrackInfo(
+        val index: Int,
+        val codecName: String,
+        val bitrate: Long,
+        val channels: Int,
+        val channelLayout: String,
+        val language: String,
+        val title: String
+    )
+
     /** Server metadata relevant to the player. */
     data class Info(
         val mode: String, // "file" or "folder"
@@ -38,6 +49,16 @@ class ServerApi(private val baseUrl: String) {
         val videoTransfer: String,
         val videoColorSpace: String,
         val dvProfile: Int,
+        val videoBitrate: Long,
+        val audioBitrate: Long,
+        val videoCodec: String,
+        val videoProfile: String,
+        val videoLevel: String,
+        val videoRFrameRate: String,
+        val videoAvgFrameRate: String,
+        val videoPixFmt: String,
+        val videoBitsPerRawSample: Int,
+        val audioTracks: List<AudioTrackInfo>,
         // On-disk sidecar subtitle files (movie1.srt etc.) the server offers.
         val subtitles: List<SubtitleTrack>,
     )
@@ -81,6 +102,20 @@ class ServerApi(private val baseUrl: String) {
                         mime = o.optString("mime", ""),
                     )
                 }
+            val audioArr = json.optJSONArray("audioTracks")
+            val audioTracks = if (audioArr == null) emptyList() else
+                (0 until audioArr.length()).mapNotNull { i ->
+                    val o = audioArr.optJSONObject(i) ?: return@mapNotNull null
+                    AudioTrackInfo(
+                        index = o.optInt("index", 0),
+                        codecName = o.optString("codec_name", ""),
+                        bitrate = o.optLong("bitrate", 0L),
+                        channels = o.optInt("channels", 0),
+                        channelLayout = o.optString("channel_layout", ""),
+                        language = o.optString("language", ""),
+                        title = o.optString("title", "")
+                    )
+                }
             val video = json.optJSONObject("video")
             Info(
                 mode = json.optString("mode", "file"),
@@ -96,6 +131,16 @@ class ServerApi(private val baseUrl: String) {
                 videoTransfer = video?.optString("transfer", "") ?: "",
                 videoColorSpace = video?.optString("colorSpace", "") ?: "",
                 dvProfile = video?.optInt("dvProfile", -1) ?: -1,
+                videoBitrate = video?.optLong("videoBitrate", 0L) ?: 0L,
+                audioBitrate = video?.optLong("audioBitrate", 0L) ?: 0L,
+                videoCodec = video?.optString("codec", "") ?: "",
+                videoProfile = video?.optString("profile", "") ?: "",
+                videoLevel = video?.optString("level", "") ?: "",
+                videoRFrameRate = video?.optString("rFrameRate", "") ?: "",
+                videoAvgFrameRate = video?.optString("avgFrameRate", "") ?: "",
+                videoPixFmt = video?.optString("pixFmt", "") ?: "",
+                videoBitsPerRawSample = video?.optInt("bitsPerRawSample", 0) ?: 0,
+                audioTracks = audioTracks,
                 subtitles = subtitles,
             )
         } catch (_: Exception) {

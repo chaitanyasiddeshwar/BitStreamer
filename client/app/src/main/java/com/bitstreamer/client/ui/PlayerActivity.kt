@@ -97,6 +97,16 @@ class PlayerActivity : Activity() {
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
+     private var srcVideoBitrate = 0L
+    private var srcAudioBitrate = 0L
+    private var srcVideoCodec = ""
+    private var srcVideoProfile = ""
+    private var srcVideoLevel = ""
+    private var srcVideoRFrameRate = ""
+    private var srcVideoAvgFrameRate = ""
+    private var srcVideoPixFmt = ""
+    private var srcVideoBitsPerRawSample = 0
+    private var srcAudioTracks: List<ServerApi.AudioTrackInfo> = emptyList()
     private lateinit var playerRoot: View
     private lateinit var scrubPreview: LinearLayout
     private lateinit var scrubPreviewImage: ImageView
@@ -275,6 +285,16 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
+                     srcVideoBitrate = info?.videoBitrate ?: 0L
+                    srcAudioBitrate = info?.audioBitrate ?: 0L
+                    srcVideoCodec = info?.videoCodec ?: ""
+                    srcVideoProfile = info?.videoProfile ?: ""
+                    srcVideoLevel = info?.videoLevel ?: ""
+                    srcVideoRFrameRate = info?.videoRFrameRate ?: ""
+                    srcVideoAvgFrameRate = info?.videoAvgFrameRate ?: ""
+                    srcVideoPixFmt = info?.videoPixFmt ?: ""
+                    srcVideoBitsPerRawSample = info?.videoBitsPerRawSample ?: 0
+                    srcAudioTracks = info?.audioTracks ?: emptyList()
                     externalSubs = info?.subtitles ?: emptyList()
                     initializePlayer(url, resumeMs)
                 }
@@ -877,22 +897,70 @@ class PlayerActivity : Activity() {
         }
 
         sb.append("— video —\n")
-        row("codec", codecStr(v))
-        if (v != null && v.width != Format.NO_VALUE) row("resolution", "${v.width}x${v.height}")
+        var videoCodecValue = codecStr(v)
+        if (srcVideoProfile.isNotEmpty()) {
+            videoCodecValue += " [$srcVideoProfile" + (if (srcVideoLevel.isNotEmpty()) " @ L$srcVideoLevel" else "") + "]"
+        }
+        row("codec", videoCodecValue)
+        if (v != null && v.width != Format.NO_VALUE) {
+            var resValue = "${v.width}x${v.height}"
+            val fps = if (srcVideoRFrameRate.isNotEmpty()) srcVideoRFrameRate else srcVideoAvgFrameRate
+            if (fps.isNotEmpty()) {
+                resValue += " @ $fps fps"
+            }
+            if (srcVideoPixFmt.isNotEmpty()) {
+                resValue += " ($srcVideoPixFmt" + (if (srcVideoBitsPerRawSample > 0) ", ${srcVideoBitsPerRawSample}bit" else "") + ")"
+            }
+            row("resolution", resValue)
+        }
         if (v != null && v.frameRate != Format.NO_VALUE.toFloat() && v.frameRate > 0) {
             row("frame rate", String.format("%.3f fps", v.frameRate))
         }
-        row("video rate", bitrateStr(v?.bitrate ?: Format.NO_VALUE, mbps = true))
+        row("bitRate", bitrateStr((v?.bitrate ?: Format.NO_VALUE).toLong(), mbps = true))
+        if (srcVideoBitrate > 0) {
+            row("file rate", bitrateStr(srcVideoBitrate, mbps = true))
+        }
         row("color", sourceColorStr())
         row("decoder", videoDecoderName)
         row("dropped", droppedFrames.toString())
 
         sb.append("— audio —\n")
+        var activeAudioIndex = -1
+        var audioIndexCounter = 0
+        p?.currentTracks?.groups?.forEach { group ->
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (j in 0 until group.length) {
+                    if (group.isTrackSupported(j)) {
+                        if (group.isTrackSelected(j)) {
+                            activeAudioIndex = audioIndexCounter
+                        }
+                        audioIndexCounter++
+                    }
+                }
+            }
+        }
+        val srcAudio = srcAudioTracks.getOrNull(activeAudioIndex)
+
         row("codec", codecStr(a))
-        if (a != null && a.channelCount != Format.NO_VALUE) row("channels", "${a.channelCount}")
+        if (srcAudio != null && srcAudio.title.isNotEmpty()) {
+            row("track title", srcAudio.title)
+        }
+        var chanVal = if (a != null && a.channelCount != Format.NO_VALUE) "${a.channelCount}" else ""
+        if (srcAudio != null && srcAudio.channelLayout.isNotEmpty()) {
+            chanVal += " (${srcAudio.channelLayout})"
+        }
+        if (chanVal.isNotEmpty()) row("channels", chanVal)
         if (a != null && a.sampleRate != Format.NO_VALUE) row("sample rate", "${a.sampleRate} Hz")
-        row("audio rate", bitrateStr(a?.bitrate ?: Format.NO_VALUE, mbps = false))
-        row("language", a?.language ?: "")
+        row("audio rate", bitrateStr((a?.bitrate ?: Format.NO_VALUE).toLong(), mbps = false))
+        val fileAudioBitrate = srcAudio?.bitrate ?: srcAudioBitrate
+        if (fileAudioBitrate > 0) {
+            row("bitRate", bitrateStr(fileAudioBitrate, mbps = false))
+        }
+        var langVal = a?.language ?: ""
+        if (srcAudio != null && srcAudio.language.isNotEmpty()) {
+            langVal = srcAudio.language
+        }
+        row("language", langVal)
         row("output", audioTrackDescription)
         //row("HDMI caps", AudioCaps.describe(this))
 
@@ -916,8 +984,8 @@ class PlayerActivity : Activity() {
         return if (f.codecs != null) "$mime (${f.codecs})" else mime
     }
 
-    private fun bitrateStr(bitrate: Int, mbps: Boolean): String {
-        if (bitrate == Format.NO_VALUE || bitrate <= 0) return ""
+    private fun bitrateStr(bitrate: Long, mbps: Boolean): String {
+        if (bitrate == Format.NO_VALUE.toLong() || bitrate <= 0L) return ""
         return if (mbps) String.format("%.1f Mbps", bitrate / 1_000_000.0)
         else "${bitrate / 1000} kbps"
     }

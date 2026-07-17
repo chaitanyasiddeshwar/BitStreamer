@@ -352,28 +352,38 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		chapters = []Chapter{} // emit [] not null
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":          1,
-		"version":    Version,
-		"mode":       "file",
-		"name":       a.displayName,
-		"file":       a.mediaName,
-		"size":       a.mediaSize,
-		"mime":       a.mediaMime,
-		"chapters":   chapters,
-		"thumbnails": a.thumbs.available(),
-		"storyboard": a.story.enabled(),
-		"video":      a.videoInfo(a.probe),
-		"subtitles":  subsOrEmpty(a.subtitles),
+		"v":           1,
+		"version":     Version,
+		"mode":        "file",
+		"name":        a.displayName,
+		"file":        a.mediaName,
+		"size":        a.mediaSize,
+		"mime":        a.mediaMime,
+		"chapters":    chapters,
+		"thumbnails":  a.thumbs.available(),
+		"storyboard":  a.story.enabled(),
+		"video":       a.videoInfo(a.probe),
+		"audioTracks": a.probe.audioTracks,
+		"subtitles":   subsOrEmpty(a.subtitles),
 	})
 }
 
 func (a *app) videoInfo(p mediaProbe) map[string]any {
 	return map[string]any{
-		"hdr":        p.isHDR,
-		"hdr10plus":  p.hdr10plus,
-		"transfer":   p.colorTransfer,
-		"colorSpace": p.colorSpace,
-		"dvProfile":  p.dvProfile,
+		"hdr":              p.isHDR,
+		"hdr10plus":        p.hdr10plus,
+		"transfer":         p.colorTransfer,
+		"colorSpace":       p.colorSpace,
+		"dvProfile":        p.dvProfile,
+		"videoBitrate":     p.videoBitrate,
+		"audioBitrate":     p.audioBitrate,
+		"codec":            p.videoCodec,
+		"profile":          p.videoProfile,
+		"level":            p.videoLevel,
+		"rFrameRate":       p.videoRFrameRate,
+		"avgFrameRate":     p.videoAvgFrameRate,
+		"pixFmt":           p.videoPixFmt,
+		"bitsPerRawSample": p.videoBitsPerSample,
 	}
 }
 
@@ -407,14 +417,15 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		probe = mediaProbe{dvProfile: -1}
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":         1,
-		"version":   Version,
-		"mode":      "folder",
-		"file":      filepath.Base(full),
-		"size":      fi.Size(),
-		"mime":      mimeForPath(full),
-		"video":     a.videoInfo(probe),
-		"subtitles": subsOrEmpty(folderSubtitlesFor(full, rel)),
+		"v":           1,
+		"version":     Version,
+		"mode":        "folder",
+		"file":        filepath.Base(full),
+		"size":        fi.Size(),
+		"mime":        mimeForPath(full),
+		"video":       a.videoInfo(probe),
+		"audioTracks": probe.audioTracks,
+		"subtitles":   subsOrEmpty(folderSubtitlesFor(full, rel)),
 	})
 }
 
