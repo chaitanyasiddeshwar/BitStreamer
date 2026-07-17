@@ -341,7 +341,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
         RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus (native DV decoder)")
-        val exoPlayer = PlayerFactory.create(this)
+        val fallbackToHdr10 = (srcDvProfile == 7)
+        val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)
         setupControls()

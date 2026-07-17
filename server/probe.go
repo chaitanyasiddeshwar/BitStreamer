@@ -309,7 +309,6 @@ func dolbyVisionAdvisory(mediaPath string) string {
 		fmt.Sprintf("    ffmpeg -i \"%s\" -map 0 -c copy -bsf:v \"filter_units=remove_types=62|63\" \"%s\"\n\n", mediaPath, out) +
 		"  Then run bitstreamer on the *_no_dv file instead.\n"
 }
-
 // findFFprobe looks next to the executable first, then on PATH. Returns "".
 func findFFprobe() string {
 	names := []string{"ffprobe", "ffprobe.exe"}
