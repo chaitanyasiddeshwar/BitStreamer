@@ -58,6 +58,7 @@ class ServerApi(private val baseUrl: String) {
         val videoAvgFrameRate: String,
         val videoPixFmt: String,
         val videoBitsPerRawSample: Int,
+        val stripDV: Boolean,
         val audioTracks: List<AudioTrackInfo>,
         // On-disk sidecar subtitle files (movie1.srt etc.) the server offers.
         val subtitles: List<SubtitleTrack>,
@@ -140,6 +141,7 @@ class ServerApi(private val baseUrl: String) {
                 videoAvgFrameRate = video?.optString("avgFrameRate", "") ?: "",
                 videoPixFmt = video?.optString("pixFmt", "") ?: "",
                 videoBitsPerRawSample = video?.optInt("bitsPerRawSample", 0) ?: 0,
+                stripDV = video?.optBoolean("stripDV", false) ?: false,
                 audioTracks = audioTracks,
                 subtitles = subtitles,
             )

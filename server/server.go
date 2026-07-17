@@ -384,6 +384,7 @@ func (a *app) videoInfo(p mediaProbe) map[string]any {
 		"avgFrameRate":     p.videoAvgFrameRate,
 		"pixFmt":           p.videoPixFmt,
 		"bitsPerRawSample": p.videoBitsPerSample,
+		"stripDV":          stripDV,
 	}
 }
 

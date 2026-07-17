@@ -97,6 +97,7 @@ class PlayerActivity : Activity() {
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
+    private var srcStripDV = false
      private var srcVideoBitrate = 0L
     private var srcAudioBitrate = 0L
     private var srcVideoCodec = ""
@@ -285,6 +286,7 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
+                    srcStripDV = info?.stripDV ?: false
                      srcVideoBitrate = info?.videoBitrate ?: 0L
                     srcAudioBitrate = info?.audioBitrate ?: 0L
                     srcVideoCodec = info?.videoCodec ?: ""
@@ -340,8 +342,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus (native DV decoder)")
-        val fallbackToHdr10 = (srcDvProfile == 7)
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV")
+        val fallbackToHdr10 = (srcDvProfile == 7 && srcStripDV)
         val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
         playerView.player = PlayerFactory.withoutSpeedControls(exoPlayer)

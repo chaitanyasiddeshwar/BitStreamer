@@ -23,6 +23,9 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
+import com.bitstreamer.client.logging.RemoteLog
+import androidx.media3.decoder.DecoderInputBuffer
+import java.nio.ByteBuffer
 import java.util.ArrayList
 
 /**
@@ -118,6 +121,7 @@ object PlayerFactory {
             if (fallbackToHdr10 && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
                 return format.buildUpon()
                     .setSampleMimeType(MimeTypes.VIDEO_H265)
+                    .setCodecs(null) // Clear DV specific codecs string
                     .build()
             }
             return format
@@ -128,7 +132,22 @@ object PlayerFactory {
             format: Format,
             requiresSecureDecoder: Boolean
         ): List<MediaCodecInfo> {
-            return super.getDecoderInfos(mediaCodecSelector, mapFormat(format), requiresSecureDecoder)
+            val mappedFormat = mapFormat(format)
+            val infos = super.getDecoderInfos(mediaCodecSelector, mappedFormat, requiresSecureDecoder)
+            if (fallbackToHdr10) {
+                RemoteLog.d("PlayerFactory", "getDecoderInfos: Dolby Vision Profile 7 fallback active, filtering out DV decoders")
+                val filtered = infos.filter { info ->
+                    val nameLower = info.name.lowercase()
+                    val mimeLower = info.mimeType.lowercase()
+                    !nameLower.contains("dolby") &&
+                    !nameLower.contains("dovi") &&
+                    !mimeLower.contains("dolby")
+                }
+                if (filtered.isNotEmpty()) {
+                    return filtered
+                }
+            }
+            return infos
         }
 
         override fun getMediaCodecConfiguration(
@@ -138,6 +157,115 @@ object PlayerFactory {
             codecOperatingRate: Float
         ): MediaCodecAdapter.Configuration {
             return super.getMediaCodecConfiguration(codecInfo, mapFormat(format), crypto, codecOperatingRate)
+        }
+
+        override fun onQueueInputBuffer(buffer: DecoderInputBuffer) {
+            val data = buffer.data
+            if (fallbackToHdr10 && data != null) {
+                stripDolbyVisionNalUnits(buffer)
+            }
+            super.onQueueInputBuffer(buffer)
+        }
+
+        private fun stripDolbyVisionNalUnits(buffer: DecoderInputBuffer) {
+            val data = buffer.data ?: return
+            if (data.remaining() < 5) return
+
+            val originalPosition = data.position()
+            val limit = data.limit()
+
+            val cleanData = ByteBuffer.allocate(data.remaining())
+            cleanData.order(data.order())
+
+            var index = originalPosition
+            var modified = false
+
+            while (index < limit) {
+                val startCodeOffset = findStartCode(data, index, limit)
+                if (startCodeOffset == -1) {
+                    val dup = data.duplicate()
+                    dup.position(index)
+                    dup.limit(limit)
+                    cleanData.put(dup)
+                    break
+                }
+
+                if (startCodeOffset > index) {
+                    val dup = data.duplicate()
+                    dup.position(index)
+                    dup.limit(startCodeOffset)
+                    cleanData.put(dup)
+                }
+
+                val startCodeLength = if (startCodeOffset + 3 < limit &&
+                    data.get(startCodeOffset) == 0.toByte() &&
+                    data.get(startCodeOffset + 1) == 0.toByte() &&
+                    data.get(startCodeOffset + 2) == 0.toByte() &&
+                    data.get(startCodeOffset + 3) == 1.toByte()) 4 else 3
+
+                val nalStart = startCodeOffset + startCodeLength
+                if (nalStart >= limit) {
+                    val dup = data.duplicate()
+                    dup.position(startCodeOffset)
+                    dup.limit(limit)
+                    cleanData.put(dup)
+                    break
+                }
+
+                val nextStartCodeOffset = findStartCode(data, nalStart, limit)
+                val nalEnd = if (nextStartCodeOffset != -1) nextStartCodeOffset else limit
+
+                val nalHeader0 = data.get(nalStart)
+                val nalType = (nalHeader0.toInt() and 0x7E) ushr 1
+
+                if (nalType == 62 || nalType == 63) {
+                    modified = true
+                } else {
+                    if (startCodeLength == 4) {
+                        cleanData.put(0.toByte())
+                    }
+                    cleanData.put(0.toByte())
+                    cleanData.put(0.toByte())
+                    cleanData.put(1.toByte())
+
+                    val dup = data.duplicate()
+                    dup.position(nalStart)
+                    dup.limit(nalEnd)
+                    cleanData.put(dup)
+                }
+
+                index = nalEnd
+            }
+
+            if (modified) {
+                cleanData.flip()
+                data.clear()
+                data.put(cleanData)
+                data.flip()
+            } else {
+                data.position(originalPosition)
+            }
+        }
+
+        private fun findStartCode(data: ByteBuffer, start: Int, limit: Int): Int {
+            var i = start
+            val max = limit - 3
+            while (i <= max) {
+                if (data.get(i) == 0.toByte() && data.get(i + 1) == 0.toByte()) {
+                    if (data.get(i + 2) == 1.toByte()) {
+                        return i
+                    }
+                    if (i + 3 < limit && data.get(i + 2) == 0.toByte() && data.get(i + 3) == 1.toByte()) {
+                        return i
+                    }
+                }
+                i++
+            }
+            return -1
+        }
+
+        private fun describeFormat(format: Format): String {
+            return "mime=${format.sampleMimeType} codecs=${format.codecs} w=${format.width} h=${format.height} color=${format.colorInfo}"
         }
     }
 

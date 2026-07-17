@@ -20,8 +20,12 @@ const (
 	discoveryPort   = 46899
 )
 
+var stripDV bool
+
 func main() {
 	log.SetFlags(log.Ltime)
+
+	flag.BoolVar(&stripDV, "stripdv", false, "force client-side stripping of Dolby Vision metadata to fallback to HDR10")
 
 	port := flag.Int("port", defaultHTTPPort, "HTTP port to serve on")
 	name := flag.String("name", "", "display name announced to clients (default: hostname)")
