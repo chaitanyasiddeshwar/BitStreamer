@@ -112,7 +112,14 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		resume:               newResumeStore(resumePath, mediaPath),
 		chapters:             chapters,
 		thumbs:               newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cDir, "thumbs")),
-		story:                newStoryboard(mediaPath, mediaDurationMs(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cDir, "storyboard")),
+		story: func() *storyboard {
+			durMs := mediaDurationMs(mediaPath)
+			intervalMs := storyboardIntervalMs
+			if durMs > 0 && durMs < 10*60*1000 {
+				intervalMs = 10 * 1000
+			}
+			return newStoryboard(mediaPath, durMs, intervalMs, hdr, filepath.Join(cDir, "storyboard"))
+		}(),
 		probe:                probe,
 		subtitles: findSidecarSubtitles(mediaPath, func(name string) string {
 			return "/subtitle?name=" + url.QueryEscape(name)
@@ -529,8 +536,13 @@ func (a *app) getOrCreateFolderMedia(full string, fi os.FileInfo, probe mediaPro
 	cDir := fileCacheDir(full, fi.Size(), fi.ModTime())
 	thDir := filepath.Join(cDir, "thumbs")
 	sbDir := filepath.Join(cDir, "storyboard")
+	durMs := mediaDurationMs(full)
+	intervalMs := a.storyboardIntervalMs
+	if durMs > 0 && durMs < 10*60*1000 {
+		intervalMs = 10 * 1000
+	}
 	th := newThumbnailer(full, fi.ModTime(), chapters, probe.isHDR, thDir)
-	sb := newStoryboard(full, mediaDurationMs(full), a.storyboardIntervalMs, probe.isHDR, sbDir)
+	sb := newStoryboard(full, durMs, intervalMs, probe.isHDR, sbDir)
 
 	item = &folderMediaItem{
 		full:     full,

@@ -21,6 +21,27 @@ func TestMediaDurationFromFixture(t *testing.T) {
 	}
 }
 
+func TestShortVideoDynamicInterval(t *testing.T) {
+	if findFFprobe() == "" {
+		t.Skip("ffprobe not installed")
+	}
+	dir := t.TempDir()
+	src, _ := os.ReadFile(filepath.Join("testdata", "chapters_sample.mkv")) // 30s video (<10m)
+	path := filepath.Join(dir, "short.mkv")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := newApp(path, "T", filepath.Join(dir, "c.apk"),
+		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898, 30000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.story.cleanup)
+	if a.story.intervalMs != 10000 {
+		t.Errorf("intervalMs = %d, want 10000 (10s) for <10m video", a.story.intervalMs)
+	}
+}
+
 func TestStoryboardGeneration(t *testing.T) {
 	path := filepath.Join("testdata", "chapters_sample.mkv")
 	sb := newStoryboard(path, mediaDurationMs(path), 5000, false, t.TempDir()) // 5s interval over ~30s
