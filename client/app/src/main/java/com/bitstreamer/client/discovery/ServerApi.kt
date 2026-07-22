@@ -21,6 +21,9 @@ class ServerApi(private val baseUrl: String) {
     /** A sidecar subtitle file served alongside the movie (e.g. movie1.en.srt). */
     data class SubtitleTrack(val url: String, val label: String, val lang: String, val mime: String)
 
+    /** A browsable root directory (multi-root mode). */
+    data class Root(val index: Int, val name: String)
+
     /** An audio track parsed by the server. */
     data class AudioTrackInfo(
         val index: Int,
@@ -34,7 +37,7 @@ class ServerApi(private val baseUrl: String) {
 
     /** Server metadata relevant to the player. */
     data class Info(
-        val mode: String, // "file" or "folder"
+        val mode: String, // "file", "folder", or "multi"
         val name: String,
         val file: String,
         val sizeBytes: Long,
@@ -62,6 +65,8 @@ class ServerApi(private val baseUrl: String) {
         val audioTracks: List<AudioTrackInfo>,
         // On-disk sidecar subtitle files (movie1.srt etc.) the server offers.
         val subtitles: List<SubtitleTrack>,
+        // Multi-root mode: the available roots (empty for file/folder mode).
+        val roots: List<Root> = emptyList(),
     )
 
     /** Scrubbing-preview (storyboard) layout — see docs/THUMBNAILS.md. */
@@ -79,12 +84,25 @@ class ServerApi(private val baseUrl: String) {
 
     /**
      * Reads /info. For folder mode, pass the relative [path] of a file to get its
-     * metadata; null/"" reads the root marker. Returns null if unreachable.
+     * metadata; null/"" reads the root marker. For multi-root mode, pass [rootIndex]
+     * to select the root. Returns null if unreachable.
      */
-    fun getInfo(path: String? = null): Info? {
+    fun getInfo(path: String? = null, rootIndex: Int? = null): Info? {
         return try {
-            val url = if (path.isNullOrEmpty()) "$baseUrl/info" else "$baseUrl/info?path=${enc(path)}"
+            val params = mutableListOf<String>()
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val url = if (params.isEmpty()) "$baseUrl/info" else "$baseUrl/info?${params.joinToString("&")}"
             val json = getJson(url)
+
+            // Parse roots array for multi mode.
+            val rootsArr = json.optJSONArray("roots")
+            val roots = if (rootsArr == null) emptyList() else
+                (0 until rootsArr.length()).mapNotNull { i ->
+                    val o = rootsArr.optJSONObject(i) ?: return@mapNotNull null
+                    Root(o.optInt("index", 0), o.optString("name", ""))
+                }
+
             val arr = json.optJSONArray("chapters")
             val chapters = if (arr == null) emptyList() else
                 (0 until arr.length()).mapNotNull { i ->
@@ -144,6 +162,7 @@ class ServerApi(private val baseUrl: String) {
                 stripDV = video?.optBoolean("stripDV", false) ?: false,
                 audioTracks = audioTracks,
                 subtitles = subtitles,
+                roots = roots,
             )
         } catch (_: Exception) {
             null
@@ -176,10 +195,12 @@ class ServerApi(private val baseUrl: String) {
     /** URL of the server-generated thumbnail for chapter [index]. */
     fun chapterThumbUrl(index: Int): String = "$baseUrl/chapter-thumb?index=$index"
 
-    /** Lists a directory (folder mode). Empty on error. */
-    fun list(path: String): List<FolderEntry> {
+    /** Lists a directory (folder mode). Pass [rootIndex] in multi-root mode. Empty on error. */
+    fun list(path: String, rootIndex: Int? = null): List<FolderEntry> {
         return try {
-            val json = getJson("$baseUrl/list?path=${enc(path)}")
+            val params = mutableListOf("path=${enc(path)}")
+            if (rootIndex != null) params.add(0, "root=$rootIndex")
+            val json = getJson("$baseUrl/list?${params.joinToString("&")}")
             val arr = json.optJSONArray("entries") ?: return emptyList()
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
@@ -194,8 +215,12 @@ class ServerApi(private val baseUrl: String) {
     /** Stream URL for the single-file server. */
     fun streamUrl(): String = "$baseUrl/stream"
 
-    /** Stream URL for a file at [path] within the served folder. */
-    fun streamUrlForPath(path: String): String = "$baseUrl/stream?path=${enc(path)}"
+    /** Stream URL for a file at [path] within the served folder. Pass [rootIndex] in multi-root mode. */
+    fun streamUrlForPath(path: String, rootIndex: Int? = null): String {
+        val params = mutableListOf("path=${enc(path)}")
+        if (rootIndex != null) params.add(0, "root=$rootIndex")
+        return "$baseUrl/stream?${params.joinToString("&")}"
+    }
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 

@@ -38,7 +38,7 @@ func main() {
 	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file>\n\nflags:\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "usage: %s [flags] <media-file-or-folder> [folder2 ...]\n\nflags:\n", filepath.Base(os.Args[0]))
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -48,7 +48,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if flag.NArg() != 1 {
+	if flag.NArg() < 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -83,26 +83,39 @@ func main() {
 		*interval = 1
 	}
 
-	// Reject unplayable file types (single-file mode only; a folder is browsed).
-	mediaPath := flag.Arg(0)
-	if fi, statErr := os.Stat(mediaPath); statErr == nil && !fi.IsDir() {
-		ext := strings.ToLower(filepath.Ext(mediaPath))
-		if ext == ".m2ts" || ext == ".mts" {
-			fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
-			os.Exit(1)
-		}
-		if !isPlayable(mediaPath) {
-			fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
-			fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
-			fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
-			os.Exit(1)
-		}
-	}
+	var app *app
+	var err error
 
-	app, err := newApp(mediaPath, *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if flag.NArg() > 1 {
+		// Multi-root mode: multiple folder arguments.
+		app, err = newMultiRootApp(flag.Args(), *name, *apk, *clientLog, *port)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	} else {
+		// Single arg: file or folder mode.
+		// Reject unplayable file types (single-file mode only; a folder is browsed).
+		mediaPath := flag.Arg(0)
+		if fi, statErr := os.Stat(mediaPath); statErr == nil && !fi.IsDir() {
+			ext := strings.ToLower(filepath.Ext(mediaPath))
+			if ext == ".m2ts" || ext == ".mts" {
+				fmt.Fprint(os.Stderr, containerAdvisory(mediaPath))
+				os.Exit(1)
+			}
+			if !isPlayable(mediaPath) {
+				fmt.Fprintf(os.Stderr, "Unsupported file type %q — the Fire TV client can't play it.\n\n", ext)
+				fmt.Fprintf(os.Stderr, "Supported extensions:\n  %s\n\n", strings.Join(supportedExtensions(), " "))
+				fmt.Fprintln(os.Stderr, "(.m2ts/.mts Blu-ray streams: remux to .mkv first — see docs/HDR_DOLBY_VISION.md and the README.)")
+				os.Exit(1)
+			}
+		}
+
+		app, err = newApp(mediaPath, *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	}
 
 	go func() {
@@ -112,7 +125,13 @@ func main() {
 	}()
 
 	fmt.Printf("BitStreamer v%s (build %s)\n", Version, buildStamp())
-	if app.folderMode {
+	if app.multiRoot {
+		fmt.Printf("Serving %d folder roots (browse them from the client)\n", len(app.roots))
+		for i, r := range app.roots {
+			fmt.Printf("  [%d] %s → %s\n", i, r.name, r.dir)
+		}
+		fmt.Println()
+	} else if app.folderMode {
 		fmt.Printf("Serving folder %q (browse it from the client)\n\n", app.rootDir)
 	} else {
 		fmt.Printf("Serving %q (%s)\n\n", app.mediaName, formatSize(app.mediaSize))
@@ -168,7 +187,7 @@ func main() {
 			}
 		}
 		if app.probe.dvProfile == 7 {
-			fmt.Print(dolbyVisionAdvisory(mediaPath))
+			fmt.Print(dolbyVisionAdvisory(app.mediaPath))
 		}
 		if app.thumbs.available() || app.story.enabled() {
 			fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)

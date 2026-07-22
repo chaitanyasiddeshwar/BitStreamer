@@ -24,6 +24,10 @@ import java.util.Locale
  * (recursively, server-capped at depth 3), navigating into subfolders on click
  * and up on Back. Selecting a playable file launches PlayerActivity with the
  * current folder's playable files as a manual next/previous playlist.
+ *
+ * In multi-root mode, the screen first shows a list of root directories. The
+ * user selects a root with D-pad OK, then browses it exactly like single-folder
+ * mode. Back from the root-level of a root returns to the roots list.
  */
 class BrowserActivity : Activity() {
 
@@ -40,6 +44,12 @@ class BrowserActivity : Activity() {
     private lateinit var adapter: EntryAdapter
     private var selectOnLoad: String? = null
 
+    // Multi-root mode state.
+    private var multiRoot = false
+    private var rootIndices: ArrayList<Int>? = null
+    private var rootNames: ArrayList<String>? = null
+    private var currentRoot: Int? = null // null = showing roots list; non-null = inside a root
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_browser)
@@ -48,6 +58,11 @@ class BrowserActivity : Activity() {
         serverName = intent.getStringExtra(EXTRA_NAME).orEmpty()
         api = ServerApi(base)
 
+        // Check for multi-root extras.
+        rootIndices = intent.getIntegerArrayListExtra(EXTRA_ROOT_INDICES)
+        rootNames = intent.getStringArrayListExtra(EXTRA_ROOT_NAMES)
+        multiRoot = rootIndices != null && rootNames != null && rootIndices!!.isNotEmpty()
+
         titleView = findViewById(R.id.browser_title)
         pathView = findViewById(R.id.browser_path)
         listView = findViewById(R.id.browser_list)
@@ -55,38 +70,73 @@ class BrowserActivity : Activity() {
         if (savedInstanceState != null) {
             currentPath = savedInstanceState.getString("currentPath", "")
             selectOnLoad = savedInstanceState.getString("selectOnLoad")
+            if (multiRoot) {
+                currentRoot = if (savedInstanceState.containsKey("currentRoot")) {
+                    savedInstanceState.getInt("currentRoot")
+                } else {
+                    null
+                }
+            }
         }
 
         adapter = EntryAdapter()
         listView.adapter = adapter
         listView.setOnItemClickListener { _, _, position, _ ->
-            val entry = entries.getOrNull(position) ?: return@setOnItemClickListener
-            if (entry.isDir) {
-                currentPath = join(currentPath, entry.name)
+            if (multiRoot && currentRoot == null) {
+                // Selecting a root from the roots list.
+                val idx = rootIndices?.getOrNull(position) ?: return@setOnItemClickListener
+                currentRoot = idx
+                currentPath = ""
                 loadPath()
             } else {
-                playFile(entry)
+                val entry = entries.getOrNull(position) ?: return@setOnItemClickListener
+                if (entry.isDir) {
+                    currentPath = join(currentPath, entry.name)
+                    loadPath()
+                } else {
+                    playFile(entry)
+                }
             }
         }
 
         titleView.text = serverName
-        loadPath()
+        if (multiRoot && currentRoot == null) {
+            showRootsList()
+        } else {
+            loadPath()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString("currentPath", currentPath)
+        if (multiRoot) {
+            val root = currentRoot
+            if (root != null) {
+                outState.putInt("currentRoot", root)
+            }
+        }
         val position = listView.selectedItemPosition
         if (position != AdapterView.INVALID_POSITION) {
-            val entry = entries.getOrNull(position)
-            if (entry != null) {
-                outState.putString("selectOnLoad", entry.name)
+            if (multiRoot && currentRoot == null) {
+                // On the roots list, save the root name for re-selection.
+                outState.putString("selectOnLoad", rootNames?.getOrNull(position))
+            } else {
+                val entry = entries.getOrNull(position)
+                if (entry != null) {
+                    outState.putString("selectOnLoad", entry.name)
+                }
             }
         }
     }
 
     override fun onBackPressed() {
-        if (currentPath.isEmpty()) {
+        if (multiRoot && currentRoot != null && currentPath.isEmpty()) {
+            // Back from root-level of a root → show roots list.
+            selectOnLoad = rootNames?.getOrNull(rootIndices?.indexOf(currentRoot!!) ?: -1)
+            currentRoot = null
+            showRootsList()
+        } else if (currentPath.isEmpty()) {
             super.onBackPressed()
         } else {
             val lastSlash = currentPath.lastIndexOf('/')
@@ -98,6 +148,8 @@ class BrowserActivity : Activity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
+            // Menu key only works when inside a root (not on roots list).
+            if (multiRoot && currentRoot == null) return super.onKeyDown(keyCode, event)
             val position = listView.selectedItemPosition
             if (position != AdapterView.INVALID_POSITION) {
                 val entry = entries.getOrNull(position)
@@ -119,7 +171,7 @@ class BrowserActivity : Activity() {
 
         Thread {
             val info = try {
-                api.getInfo(rel)
+                api.getInfo(rel, currentRoot)
             } catch (e: Exception) {
                 null
             }
@@ -161,7 +213,7 @@ class BrowserActivity : Activity() {
         val infoPaths = ArrayList<String>(files.size)
         for (f in files) {
             val rel = join(currentPath, f.name)
-            urls.add(api.streamUrlForPath(rel))
+            urls.add(api.streamUrlForPath(rel, currentRoot))
             titles.add(f.name)
             infoPaths.add(rel)
         }
@@ -175,14 +227,65 @@ class BrowserActivity : Activity() {
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_INFO_PATHS, infoPaths)
             putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
             putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+            currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })
     }
 
+    /** Shows the roots list (multi-root mode only). */
+    private fun showRootsList() {
+        titleView.text = serverName
+        pathView.text = "Select a folder"
+        entries.clear()
+        adapter.notifyDataSetChanged()
+
+        // Replace the adapter temporarily with a roots adapter.
+        val names = rootNames ?: return
+        val rootAdapter = object : BaseAdapter() {
+            override fun getCount(): Int = names.size
+            override fun getItem(position: Int): Any = names[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = convertView ?: LayoutInflater.from(this@BrowserActivity)
+                    .inflate(R.layout.browser_row, parent, false)
+                view.findViewById<ImageView>(R.id.row_icon)
+                    .setImageResource(R.drawable.ic_folder)
+                view.findViewById<TextView>(R.id.row_name).text = names[position]
+                view.findViewById<TextView>(R.id.row_size).text = ""
+                return view
+            }
+        }
+        listView.adapter = rootAdapter
+        if (names.isNotEmpty()) {
+            listView.requestFocus()
+            val targetIndex = selectOnLoad?.let { targetName ->
+                names.indexOfFirst { it == targetName }
+            }?.takeIf { it >= 0 } ?: 0
+            listView.setSelection(targetIndex)
+            selectOnLoad = null
+        }
+    }
+
     private fun loadPath() {
+        // Restore the entries adapter if coming from roots list.
+        if (listView.adapter !== adapter) {
+            listView.adapter = adapter
+        }
+
+        val rootName = if (multiRoot && currentRoot != null) {
+            val idx = rootIndices?.indexOf(currentRoot!!) ?: -1
+            rootNames?.getOrNull(idx) ?: ""
+        } else ""
+        if (multiRoot && rootName.isNotEmpty()) {
+            titleView.text = "$serverName — $rootName"
+        } else {
+            titleView.text = serverName
+        }
         pathView.text = if (currentPath.isEmpty()) "/" else "/$currentPath"
+
         Thread {
             val listed = try {
-                api.list(currentPath)
+                api.list(currentPath, currentRoot)
             } catch (e: Exception) {
                 emptyList()
             }
@@ -210,7 +313,7 @@ class BrowserActivity : Activity() {
         val infoPaths = ArrayList<String>(files.size)
         for (f in files) {
             val rel = join(currentPath, f.name)
-            urls.add(api.streamUrlForPath(rel))
+            urls.add(api.streamUrlForPath(rel, currentRoot))
             titles.add(f.name)
             infoPaths.add(rel)
         }
@@ -223,6 +326,7 @@ class BrowserActivity : Activity() {
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_TITLES, titles)
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_INFO_PATHS, infoPaths)
             putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
+            currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })
     }
 
@@ -268,5 +372,7 @@ class BrowserActivity : Activity() {
     companion object {
         const val EXTRA_BASE_URL = "baseUrl"
         const val EXTRA_NAME = "name"
+        const val EXTRA_ROOT_INDICES = "rootIndices"
+        const val EXTRA_ROOT_NAMES = "rootNames"
     }
 }

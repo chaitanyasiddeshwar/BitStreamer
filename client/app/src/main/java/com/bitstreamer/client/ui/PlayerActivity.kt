@@ -87,6 +87,7 @@ class PlayerActivity : Activity() {
     private var playlistTitles: ArrayList<String>? = null
     private var playlistInfoPaths: ArrayList<String>? = null
     private var playlistIndex = 0
+    private var rootIndex: Int? = null
 
     // Sidecar subtitle files the server found next to the movie (movie1.srt etc.).
     private var externalSubs: List<ServerApi.SubtitleTrack> = emptyList()
@@ -268,6 +269,9 @@ class PlayerActivity : Activity() {
         playlistInfoPaths = intent.getStringArrayListExtra(EXTRA_PL_INFO_PATHS)
         playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
         forceStripDV = intent.getBooleanExtra(EXTRA_FORCE_STRIP_DV, false)
+        if (intent.hasExtra(EXTRA_ROOT_INDEX)) {
+            rootIndex = intent.getIntExtra(EXTRA_ROOT_INDEX, 0)
+        }
         val uri = Uri.parse(url)
         baseUrl = "http://${uri.host}:${uri.port}"
         api = ServerApi(baseUrl)
@@ -276,7 +280,7 @@ class PlayerActivity : Activity() {
         Thread {
             val a = api
             val resumeMs = if (folderMode) 0L else (a?.getResumePositionMs() ?: 0L)
-            val info = a?.getInfo(infoPath.ifEmpty { null })
+            val info = a?.getInfo(infoPath.ifEmpty { null }, rootIndex)
             val sb = if (!folderMode && info?.storyboardAvailable == true) a?.getStoryboard() else null
             mainHandler.post {
                 if (!isFinishing) {
@@ -530,6 +534,7 @@ class PlayerActivity : Activity() {
             putExtra(EXTRA_TITLE, playlistTitles?.getOrNull(index) ?: "")
             putExtra(EXTRA_INFO_PATH, playlistInfoPaths?.getOrNull(index) ?: "")
             putExtra(EXTRA_FOLDER_MODE, true)
+            rootIndex?.let { putExtra(EXTRA_ROOT_INDEX, it) }
             putStringArrayListExtra(EXTRA_PL_URLS, playlistUrls)
             putStringArrayListExtra(EXTRA_PL_TITLES, playlistTitles)
             putStringArrayListExtra(EXTRA_PL_INFO_PATHS, playlistInfoPaths)
@@ -1133,6 +1138,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_PL_TITLES = "playlistTitles"
         const val EXTRA_PL_INFO_PATHS = "playlistInfoPaths"
         const val EXTRA_PL_INDEX = "playlistIndex"
+        const val EXTRA_ROOT_INDEX = "rootIndex"
         private const val IMAGE_DURATION_MS = 5_000L // 5 seconds duration for image files
         private const val MIN_RESUME_MS = 10_000L // don't prompt for the first few seconds
         private const val POSITION_REPORT_INTERVAL_MS = 5_000L

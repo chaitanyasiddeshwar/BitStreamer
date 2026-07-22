@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -155,12 +156,22 @@ func subsOrEmpty(s []subtitleTrack) []subtitleTrack {
 
 // handleSubtitle serves a sidecar subtitle file. Single-file mode: ?name= is a
 // bare filename resolved inside the movie's directory. Folder mode: ?path= is a
-// path relative to the served root (confined by resolvePath). Only files with a
-// known subtitle extension are served.
+// path relative to the served root (confined by resolvePath). Multi-root mode
+// adds ?root=N. Only files with a known subtitle extension are served.
 func (a *app) handleSubtitle(w http.ResponseWriter, r *http.Request) {
 	var full string
 	if a.folderMode {
-		p, ok := a.resolvePath(r.URL.Query().Get("path"))
+		var p string
+		var ok bool
+		if a.multiRoot {
+			rootIdx, rok := a.parseRoot(w, r)
+			if !rok {
+				return
+			}
+			p, ok = a.resolveRootPath(rootIdx, r.URL.Query().Get("path"))
+		} else {
+			p, ok = a.resolvePath(r.URL.Query().Get("path"))
+		}
 		if !ok {
 			http.Error(w, "bad path", http.StatusBadRequest)
 			return
@@ -208,5 +219,22 @@ func folderSubtitlesFor(full, rel string) []subtitleTrack {
 			rp = reldir + "/" + name
 		}
 		return "/subtitle?path=" + url.QueryEscape(rp)
+	})
+}
+
+// multiRootFolderSubtitlesFor is like folderSubtitlesFor but includes ?root=N
+// in the subtitle URLs for multi-root mode.
+func multiRootFolderSubtitlesFor(full, rel string, rootIdx int) []subtitleTrack {
+	relClean := strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+	reldir := ""
+	if i := strings.LastIndex(relClean, "/"); i >= 0 {
+		reldir = relClean[:i]
+	}
+	return findSidecarSubtitles(full, func(name string) string {
+		rp := name
+		if reldir != "" {
+			rp = reldir + "/" + name
+		}
+		return fmt.Sprintf("/subtitle?root=%d&path=%s", rootIdx, url.QueryEscape(rp))
 	})
 }

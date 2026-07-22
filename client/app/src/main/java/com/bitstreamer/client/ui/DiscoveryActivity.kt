@@ -146,10 +146,18 @@ class DiscoveryActivity : Activity() {
 
     private fun play(server: DiscoveryClient.Server) {
         val base = "http://${server.host}:${server.httpPort}"
-        if (infoByHost[server.host]?.mode == "folder") {
+        val mode = infoByHost[server.host]?.mode
+        if (mode == "folder" || mode == "multi") {
             startActivity(Intent(this, BrowserActivity::class.java).apply {
                 putExtra(BrowserActivity.EXTRA_BASE_URL, base)
                 putExtra(BrowserActivity.EXTRA_NAME, server.name)
+                if (mode == "multi") {
+                    val info = infoByHost[server.host]
+                    val rootIndices = ArrayList(info?.roots?.map { it.index } ?: emptyList())
+                    val rootNames = ArrayList(info?.roots?.map { it.name } ?: emptyList())
+                    putIntegerArrayListExtra(BrowserActivity.EXTRA_ROOT_INDICES, rootIndices)
+                    putStringArrayListExtra(BrowserActivity.EXTRA_ROOT_NAMES, rootNames)
+                }
             })
         } else {
             startActivity(Intent(this, PlayerActivity::class.java).apply {
@@ -207,6 +215,16 @@ class DiscoveryActivity : Activity() {
     private fun renderDetails(host: String?) {
         detailsView.removeAllViews()
         val info = host?.let { infoByHost[it] } ?: return
+        if (info.mode == "multi") {
+            addHeader("Multi-Root")
+            addRow("Name", info.name)
+            addRow("Roots", info.roots.size.toString())
+            for (r in info.roots) {
+                addRow("", r.name)
+            }
+            addRow("", "Select to browse")
+            return
+        }
         if (info.mode == "folder") {
             addHeader("Folder")
             addRow("Name", info.file)

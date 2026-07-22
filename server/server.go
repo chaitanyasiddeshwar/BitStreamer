@@ -18,8 +18,15 @@ import (
 	"time"
 )
 
+// rootEntry is one served directory in multi-root mode.
+type rootEntry struct {
+	name string // display label (directory basename)
+	dir  string // absolute path
+}
+
 // app holds the configuration for one server run — either a single media file
-// (with chapters/thumbnails/storyboard/resume) or a folder browsed by the client.
+// (with chapters/thumbnails/storyboard/resume), a single folder browsed by the
+// client, or multiple folder roots.
 type app struct {
 	mediaPath   string
 	mediaName   string
@@ -35,6 +42,11 @@ type app struct {
 	// thumbnails/storyboard/resume — see docs/PROJECT_PLAN.md folder support).
 	folderMode bool
 	rootDir    string
+
+	// Multi-root mode: multiple folder roots served simultaneously. The client
+	// picks a root first, then browses it like a single-folder.
+	multiRoot bool
+	roots     []rootEntry
 
 	clientLogPath string
 	clientLogMu   sync.Mutex
@@ -100,6 +112,34 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 			return "/subtitle?name=" + url.QueryEscape(name)
 		}),
 		cacheRoot: cacheRoot,
+	}, nil
+}
+
+// newMultiRootApp creates a multi-root folder-mode app from multiple directories.
+// Each directory becomes a browsable root the client can select.
+func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, httpPort int) (*app, error) {
+	roots := make([]rootEntry, 0, len(dirs))
+	for _, d := range dirs {
+		if len(d) == 2 && d[1] == ':' {
+			d += string(os.PathSeparator)
+		}
+		info, err := os.Stat(d)
+		if err != nil {
+			return nil, fmt.Errorf("cannot open %s: %w", d, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("%s is not a directory (multi-root mode requires all arguments to be directories)", d)
+		}
+		roots = append(roots, rootEntry{name: filepath.Base(d), dir: d})
+	}
+	return &app{
+		folderMode:    true,
+		multiRoot:     true,
+		roots:         roots,
+		displayName:   displayName,
+		apkPath:       apkPath,
+		httpPort:      httpPort,
+		clientLogPath: clientLogPath,
 	}, nil
 }
 
@@ -260,6 +300,43 @@ func (a *app) handler() http.Handler {
 	return logRequests(mux)
 }
 
+// parseRoot extracts the ?root=N query parameter for multi-root mode. Returns
+// the root index and true, or writes an HTTP error and returns false.
+func (a *app) parseRoot(w http.ResponseWriter, r *http.Request) (int, bool) {
+	rs := r.URL.Query().Get("root")
+	if rs == "" {
+		http.Error(w, "root parameter required in multi-root mode", http.StatusBadRequest)
+		return 0, false
+	}
+	idx, err := strconv.Atoi(rs)
+	if err != nil || idx < 0 || idx >= len(a.roots) {
+		http.Error(w, "invalid root index", http.StatusBadRequest)
+		return 0, false
+	}
+	return idx, true
+}
+
+// resolveRootPath is like resolvePath but resolves against a specific root
+// directory instead of rootDir. Used in multi-root mode.
+func (a *app) resolveRootPath(rootIdx int, rel string) (string, bool) {
+	rootDir := a.roots[rootIdx].dir
+	clean := filepath.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
+	full := filepath.Join(rootDir, filepath.FromSlash(clean))
+	rootAbs, err1 := filepath.Abs(rootDir)
+	fullAbs, err2 := filepath.Abs(full)
+	if err1 != nil || err2 != nil {
+		return "", false
+	}
+	prefix := rootAbs
+	if !strings.HasSuffix(prefix, string(os.PathSeparator)) {
+		prefix = prefix + string(os.PathSeparator)
+	}
+	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, prefix) {
+		return "", false
+	}
+	return full, true
+}
+
 // resolvePath maps a client-supplied relative path to an absolute path confined
 // to rootDir. The leading-slash + Clean collapses any ".." so it can't escape;
 // the prefix check is a belt-and-braces guard. Returns ok=false on escape.
@@ -293,8 +370,18 @@ func pathDepth(rel string) int {
 // handleList returns a directory listing (folder mode): subfolders (up to depth
 // folderMaxDepth) plus playable files, dirs first, alphabetical.
 func (a *app) handleList(w http.ResponseWriter, r *http.Request) {
+	var full string
+	var ok bool
 	rel := r.URL.Query().Get("path")
-	full, ok := a.resolvePath(rel)
+	if a.multiRoot {
+		rootIdx, rok := a.parseRoot(w, r)
+		if !rok {
+			return
+		}
+		full, ok = a.resolveRootPath(rootIdx, rel)
+	} else {
+		full, ok = a.resolvePath(rel)
+	}
 	if !ok {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
@@ -371,6 +458,15 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// rootJSON returns a JSON-serializable representation of the roots list.
+func (a *app) rootsJSON() []map[string]any {
+	result := make([]map[string]any, len(a.roots))
+	for i, r := range a.roots {
+		result[i] = map[string]any{"index": i, "name": r.name}
+	}
+	return result
+}
+
 func (a *app) videoInfo(p mediaProbe) map[string]any {
 	return map[string]any{
 		"hdr":              p.isHDR,
@@ -393,20 +489,63 @@ func (a *app) videoInfo(p mediaProbe) map[string]any {
 
 // writeFolderInfo serves /info in folder mode. With no ?path it returns the
 // folder root marker; with a ?path it returns that file's metadata (ffprobe
-// colour on demand — no caching in folder mode).
+// colour on demand — no caching in folder mode). In multi-root mode, ?root=N
+// selects the root; without ?root returns the roots list.
 func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
-	if rel == "" {
+	rootParam := r.URL.Query().Get("root")
+
+	// Multi-root mode: no ?root → return the roots list.
+	if a.multiRoot && rootParam == "" {
 		json.NewEncoder(w).Encode(map[string]any{
 			"v":       1,
 			"version": Version,
-			"mode":    "folder",
+			"mode":    "multi",
 			"name":    a.displayName,
-			"file":    filepath.Base(a.rootDir),
+			"roots":   a.rootsJSON(),
 		})
 		return
 	}
-	full, ok := a.resolvePath(rel)
+
+	// Resolve against the appropriate root.
+	var rootIdx int
+	if a.multiRoot {
+		var rok bool
+		rootIdx, rok = a.parseRoot(w, r)
+		if !rok {
+			return
+		}
+	}
+
+	if rel == "" {
+		// Per-root folder marker.
+		rootName := ""
+		if a.multiRoot {
+			rootName = a.roots[rootIdx].name
+		} else {
+			rootName = filepath.Base(a.rootDir)
+		}
+		mode := "folder"
+		if a.multiRoot {
+			mode = "multi"
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"v":       1,
+			"version": Version,
+			"mode":    mode,
+			"name":    a.displayName,
+			"file":    rootName,
+		})
+		return
+	}
+
+	var full string
+	var ok bool
+	if a.multiRoot {
+		full, ok = a.resolveRootPath(rootIdx, rel)
+	} else {
+		full, ok = a.resolvePath(rel)
+	}
 	if !ok {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
@@ -424,17 +563,28 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	if chapters == nil {
 		chapters = []Chapter{}
 	}
+	mode := "folder"
+	if a.multiRoot {
+		mode = "multi"
+	}
+	// Build subtitle URLs with ?root=N in multi-root mode.
+	var subs []subtitleTrack
+	if a.multiRoot {
+		subs = multiRootFolderSubtitlesFor(full, rel, rootIdx)
+	} else {
+		subs = folderSubtitlesFor(full, rel)
+	}
 	json.NewEncoder(w).Encode(map[string]any{
 		"v":           1,
 		"version":     Version,
-		"mode":        "folder",
+		"mode":        mode,
 		"file":        filepath.Base(full),
 		"size":        fi.Size(),
 		"mime":        mimeForPath(full),
 		"chapters":    chapters,
 		"video":       a.videoInfo(probe),
 		"audioTracks": probe.audioTracks,
-		"subtitles":   subsOrEmpty(folderSubtitlesFor(full, rel)),
+		"subtitles":   subsOrEmpty(subs),
 	})
 }
 
@@ -442,7 +592,17 @@ func (a *app) handleStream(w http.ResponseWriter, r *http.Request) {
 	path := a.mediaPath
 	mime := a.mediaMime
 	if a.folderMode {
-		full, ok := a.resolvePath(r.URL.Query().Get("path"))
+		var full string
+		var ok bool
+		if a.multiRoot {
+			rootIdx, rok := a.parseRoot(w, r)
+			if !rok {
+				return
+			}
+			full, ok = a.resolveRootPath(rootIdx, r.URL.Query().Get("path"))
+		} else {
+			full, ok = a.resolvePath(r.URL.Query().Get("path"))
+		}
 		if !ok {
 			http.Error(w, "bad path", http.StatusBadRequest)
 			return
@@ -604,6 +764,22 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if a.multiRoot {
+		fmt.Fprintf(w, `<!doctype html>
+<title>BitStreamer</title>
+<h1>BitStreamer &mdash; %s</h1>
+<p>Serving %d folder roots &mdash; browse them from the Fire TV client.</p>
+<ul>
+`, html.EscapeString(a.displayName), len(a.roots))
+		for i, r := range a.roots {
+			fmt.Fprintf(w, "  <li><a href=\"/list?root=%d\">/list?root=%d</a> &mdash; %s</li>\n",
+				i, i, html.EscapeString(r.name))
+		}
+		fmt.Fprintf(w, `  <li><a href="/client.apk">/client.apk</a> &mdash; Fire TV client APK</li>
+</ul>
+`)
+		return
+	}
 	if a.folderMode {
 		fmt.Fprintf(w, `<!doctype html>
 <title>BitStreamer</title>
