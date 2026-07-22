@@ -170,9 +170,13 @@ class ServerApi(private val baseUrl: String) {
     }
 
     /** Fetches the storyboard manifest, or null if not ready / unavailable. */
-    fun getStoryboard(): Storyboard? {
+    fun getStoryboard(path: String? = null, rootIndex: Int? = null): Storyboard? {
         return try {
-            val j = getJson("$baseUrl/storyboard.json")
+            val params = mutableListOf<String>()
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
+            val j = getJson("$baseUrl/storyboard.json$query")
             Storyboard(
                 intervalMs = j.optLong("intervalMs", 0),
                 durationMs = j.optLong("durationMs", 0),
@@ -190,10 +194,20 @@ class ServerApi(private val baseUrl: String) {
     }
 
     /** URL of storyboard sprite sheet [sheet]. */
-    fun storyboardSheetUrl(sheet: Int): String = "$baseUrl/storyboard?sheet=$sheet"
+    fun storyboardSheetUrl(sheet: Int, path: String? = null, rootIndex: Int? = null): String {
+        val params = mutableListOf("sheet=$sheet")
+        if (rootIndex != null) params.add("root=$rootIndex")
+        if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+        return "$baseUrl/storyboard?${params.joinToString("&")}"
+    }
 
     /** URL of the server-generated thumbnail for chapter [index]. */
-    fun chapterThumbUrl(index: Int): String = "$baseUrl/chapter-thumb?index=$index"
+    fun chapterThumbUrl(index: Int, path: String? = null, rootIndex: Int? = null): String {
+        val params = mutableListOf("index=$index")
+        if (rootIndex != null) params.add("root=$rootIndex")
+        if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+        return "$baseUrl/chapter-thumb?${params.joinToString("&")}"
+    }
 
     /** Lists a directory (folder mode). Pass [rootIndex] in multi-root mode. Empty on error. */
     fun list(path: String, rootIndex: Int? = null): List<FolderEntry> {

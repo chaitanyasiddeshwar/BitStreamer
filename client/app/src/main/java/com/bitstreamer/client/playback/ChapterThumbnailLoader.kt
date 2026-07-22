@@ -18,7 +18,11 @@ import java.util.concurrent.Executors
  * null frames on Fire TV because the single hardware decoder is busy with
  * playback. Results are cached; failures yield null, never an error.
  */
-class ChapterThumbnailLoader(private val baseUrl: String) {
+class ChapterThumbnailLoader(
+    private val baseUrl: String,
+    private val path: String? = null,
+    private val rootIndex: Int? = null
+) {
 
     private val cache = LruCache<Int, Bitmap>(64)
     private val executor: ExecutorService = Executors.newFixedThreadPool(3)
@@ -45,7 +49,10 @@ class ChapterThumbnailLoader(private val baseUrl: String) {
 
     private fun fetch(index: Int): Bitmap? {
         return try {
-            val conn = URL("$baseUrl/chapter-thumb?index=$index").openConnection() as HttpURLConnection
+            val params = mutableListOf("index=$index")
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${java.net.URLEncoder.encode(path, "UTF-8")}")
+            val conn = URL("$baseUrl/chapter-thumb?${params.joinToString("&")}").openConnection() as HttpURLConnection
             conn.connectTimeout = 3000
             conn.readTimeout = 8000
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {

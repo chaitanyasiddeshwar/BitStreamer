@@ -20,12 +20,16 @@ const (
 	discoveryPort   = 46899
 )
 
-var stripDV bool
+var (
+	stripDV   bool
+	noCaching bool
+)
 
 func main() {
 	log.SetFlags(log.Ltime)
 
 	flag.BoolVar(&stripDV, "stripdv", false, "force client-side stripping of Dolby Vision metadata to fallback to HDR10")
+	flag.BoolVar(&noCaching, "no-caching", false, "disable disk caching of thumbnail JPEGs and seekbar sprite sheets (chapters discovery remains enabled)")
 
 	port := flag.Int("port", defaultHTTPPort, "HTTP port to serve on")
 	name := flag.String("name", "", "display name announced to clients (default: hostname)")
@@ -33,7 +37,6 @@ func main() {
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
-	keepCache := flag.Bool("keep-cache", false, "keep the thumbnail/storyboard cache on exit instead of deleting it")
 	skipPreviews := flag.Bool("skip-previews", false, "skip ffmpeg seek bar previews (storyboard) generation")
 	ffmpegLogFile := flag.String("ffmpeglog", "", "file where ffmpeg/ffprobe output is appended (default: ffmpeg-logs.txt next to the executable)")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -88,7 +91,7 @@ func main() {
 
 	if flag.NArg() > 1 {
 		// Multi-root mode: multiple folder arguments.
-		app, err = newMultiRootApp(flag.Args(), *name, *apk, *clientLog, *port)
+		app, err = newMultiRootApp(flag.Args(), *name, *apk, *clientLog, *port, int64(*interval)*1000)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -146,7 +149,22 @@ func main() {
 	fmt.Printf("Client diagnostics will be appended to %s\n", app.clientLogPath)
 
 	if app.folderMode {
-		fmt.Println("Folder mode: no chapters/thumbnails/scrub previews (single-file mode only).")
+		ffprobeFound := findFFprobe() != ""
+		ffmpegFound := findFFmpeg() != ""
+		if !ffprobeFound || !ffmpegFound {
+			var missing []string
+			if !ffmpegFound {
+				missing = append(missing, "ffmpeg")
+			}
+			if !ffprobeFound {
+				missing = append(missing, "ffprobe")
+			}
+			fmt.Printf("⚠ %s not found (looked next to executable and PATH). Previews disabled.\n", strings.Join(missing, " and "))
+		} else if noCaching {
+			fmt.Println("Folder mode: chapter discovery active; thumbnail/storyboard caching disabled (--no-caching active).")
+		} else {
+			fmt.Printf("Folder mode: chapter thumbnails and seekbar scrubbing previews generated on-demand (every %ds).\n", *interval)
+		}
 	} else {
 		ffprobeFound := findFFprobe() != ""
 		ffmpegFound := findFFmpeg() != ""
@@ -206,15 +224,11 @@ func main() {
 		}
 	}
 
-	// On Ctrl+C / termination, delete the whole cache (thumbnails + storyboard)
-	// unless --keep-cache was passed.
+	// On Ctrl+C / termination, exit cleanly.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		if !*keepCache {
-			os.RemoveAll(app.cacheRoot)
-		}
 		os.Exit(0)
 	}()
 

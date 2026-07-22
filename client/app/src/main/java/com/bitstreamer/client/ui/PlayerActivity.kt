@@ -281,7 +281,7 @@ class PlayerActivity : Activity() {
             val a = api
             val resumeMs = if (folderMode) 0L else (a?.getResumePositionMs() ?: 0L)
             val info = a?.getInfo(infoPath.ifEmpty { null }, rootIndex)
-            val sb = if (!folderMode && info?.storyboardAvailable == true) a?.getStoryboard() else null
+            val sb = if (info?.storyboardAvailable == true) a?.getStoryboard(infoPath.ifEmpty { null }, rootIndex) else null
             mainHandler.post {
                 if (!isFinishing) {
                     chapters = info?.chapters ?: emptyList()
@@ -613,7 +613,7 @@ class PlayerActivity : Activity() {
             val times = chapters.map { it.startMs }.toLongArray()
             playerView.setExtraAdGroupMarkers(times, BooleanArray(times.size))
             thumbnailLoader?.release()
-            thumbnailLoader = if (hasThumbnails) ChapterThumbnailLoader(baseUrl) else null
+            thumbnailLoader = ChapterThumbnailLoader(baseUrl, infoPath.ifEmpty { null }, rootIndex)
             RemoteLog.d(TAG, "chapters: ${chapters.size}, thumbnails=$hasThumbnails")
         } else {
             btnChapters?.visibility = View.GONE
@@ -778,7 +778,7 @@ class PlayerActivity : Activity() {
     private fun enableStoryboard(sb: ServerApi.Storyboard) {
         storyboard = sb
         storyboardLoader?.release()
-        storyboardLoader = api?.let { StoryboardLoader(it, sb) }
+        storyboardLoader = api?.let { StoryboardLoader(it, sb, infoPath.ifEmpty { null }, rootIndex) }
         playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
             ?.setKeyTimeIncrement(sb.intervalMs)
         RemoteLog.d(TAG, "scrub previews enabled: ${sb.tileCount} tiles @${sb.intervalMs}ms")
@@ -790,7 +790,7 @@ class PlayerActivity : Activity() {
         Thread {
             repeat(STORYBOARD_POLL_ATTEMPTS) {
                 if (isFinishing || storyboardLoader != null) return@Thread
-                val sb = a.getStoryboard()
+                val sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
                 if (sb != null) {
                     mainHandler.post { if (!isFinishing) enableStoryboard(sb) }
                     return@Thread

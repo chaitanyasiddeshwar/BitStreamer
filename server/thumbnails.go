@@ -1,12 +1,10 @@
 package main
 
 import (
-	"crypto/sha1"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -35,7 +33,11 @@ type thumbnailer struct {
 }
 
 func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter, hdr bool, cacheDir string) *thumbnailer {
-	_ = os.MkdirAll(cacheDir, 0o755)
+	if noCaching {
+		cacheDir = ""
+	} else if cacheDir != "" {
+		_ = os.MkdirAll(cacheDir, 0o755)
+	}
 	return &thumbnailer{
 		ffmpegPath: findFFmpeg(),
 		mediaPath:  mediaPath,
@@ -51,7 +53,7 @@ func newThumbnailer(mediaPath string, mediaMod time.Time, chapters []Chapter, hd
 // available reports whether thumbnails can be served (ffmpeg present and the
 // file actually has chapters).
 func (t *thumbnailer) available() bool {
-	return t.ffmpegPath != "" && len(t.chapters) > 0
+	return !noCaching && t.ffmpegPath != "" && len(t.chapters) > 0 && t.cacheDir != ""
 }
 
 // get returns the on-disk path of chapter [index]'s thumbnail, generating and
@@ -137,28 +139,11 @@ func (t *thumbnailer) lockFor(index int) *sync.Mutex {
 // thumbPath is stable per (file, mtime, index) so cached thumbnails survive a
 // server restart but are regenerated if the file changes.
 func (t *thumbnailer) thumbPath(index int) string {
-	// hdr is part of the key so a change in tonemapping (or HDR detection)
-	// regenerates rather than reusing a stale, non-tonemapped cached frame.
-	key := fmt.Sprintf("%s|%d|%d|hdr=%v", t.mediaPath, t.mediaMod, index, t.hdr)
-	sum := sha1.Sum([]byte(key))
-	return filepath.Join(t.cacheDir, fmt.Sprintf("%x_%d.jpg", sum[:8], index))
+	return filepath.Join(t.cacheDir, fmt.Sprintf("thumb_%03d.jpg", index))
 }
 
 // findFFmpeg looks next to the executable first (the documented sidecar spot),
 // then on PATH. Returns "" if not found.
 func findFFmpeg() string {
-	names := []string{"ffmpeg", "ffmpeg.exe"}
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		for _, n := range names {
-			p := filepath.Join(dir, n)
-			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-				return p
-			}
-		}
-	}
-	if p, err := exec.LookPath("ffmpeg"); err == nil {
-		return p
-	}
-	return ""
+	return findExecutable("ffmpeg")
 }

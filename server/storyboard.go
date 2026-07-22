@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
@@ -52,17 +53,18 @@ func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool, cac
 	if f := flag.Lookup("skip-previews"); f != nil && f.Value.String() == "true" {
 		skipPreviews = true
 	}
+	if noCaching {
+		cacheDir = ""
+	}
 
-	if skipPreviews {
+	if skipPreviews || noCaching {
 		cacheDir = ""
 	} else {
-		// Per-session: wipe any leftovers from a previous run and start fresh.
-		os.RemoveAll(cacheDir)
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			cacheDir = "" // disables the storyboard (enabled() checks cacheDir)
 		}
 	}
-	return &storyboard{
+	sb := &storyboard{
 		ffmpegPath: findFFmpeg(),
 		mediaPath:  mediaPath,
 		durationMs: durationMs,
@@ -71,6 +73,10 @@ func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool, cac
 		hdr:        hdr,
 		sem:        make(chan struct{}, 4),
 	}
+	if cacheDir != "" {
+		sb.loadCache()
+	}
+	return sb
 }
 
 // enabled reports whether a storyboard can be produced at all.
@@ -87,7 +93,10 @@ func (s *storyboard) isReady() bool {
 // generate grabs one keyframe per interval (parallel, capped) and packs them
 // into sprite sheets. Call in the background at startup.
 func (s *storyboard) generate() {
-	if !s.enabled() {
+	if !s.enabled() || s.isReady() {
+		return
+	}
+	if s.loadCache() {
 		return
 	}
 	tileCount := int((s.durationMs + s.intervalMs - 1) / s.intervalMs)
@@ -144,8 +153,53 @@ func (s *storyboard) generate() {
 	s.sheetCount = sheetCount
 	s.ready = true
 	s.mu.Unlock()
+
+	s.saveManifest()
+
 	log.Printf("storyboard ready: %d tiles across %d sheets (%dx%d px, every %ds, keyframe seeks)",
 		tileCount, sheetCount, tileW, tileH, s.intervalMs/1000)
+}
+
+func (s *storyboard) loadCache() bool {
+	if s.cacheDir == "" {
+		return false
+	}
+	p := filepath.Join(s.cacheDir, "storyboard.json")
+	f, err := os.Open(p)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var m struct {
+		TileWidth  int `json:"tileWidth"`
+		TileHeight int `json:"tileHeight"`
+		TileCount  int `json:"tileCount"`
+		SheetCount int `json:"sheetCount"`
+	}
+	if err := json.NewDecoder(f).Decode(&m); err != nil || m.SheetCount == 0 {
+		return false
+	}
+	s.mu.Lock()
+	s.tileWidth = m.TileWidth
+	s.tileHeight = m.TileHeight
+	s.tileCount = m.TileCount
+	s.sheetCount = m.SheetCount
+	s.ready = true
+	s.mu.Unlock()
+	return true
+}
+
+func (s *storyboard) saveManifest() {
+	if s.cacheDir == "" {
+		return
+	}
+	p := filepath.Join(s.cacheDir, "storyboard.json")
+	f, err := os.Create(p)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	json.NewEncoder(f).Encode(s.manifest())
 }
 
 // extractTile grabs the frame near tile idx's timestamp. Fast: -ss before -i is
@@ -231,9 +285,6 @@ func (s *storyboard) manifest() map[string]any {
 	}
 }
 
-// cleanup removes the per-session sprite-sheet cache.
+// cleanup is a no-op to preserve persistent caching across server runs.
 func (s *storyboard) cleanup() {
-	if s.cacheDir != "" {
-		os.RemoveAll(s.cacheDir)
-	}
 }

@@ -57,6 +57,10 @@ type app struct {
 	probe         mediaProbe
 	subtitles     []subtitleTrack // sidecar .srt/.ass/... next to the movie (single-file mode)
 	cacheRoot     string
+
+	storyboardIntervalMs int64
+	folderMediaMu        sync.Mutex
+	folderMedia          map[string]*folderMediaItem
 }
 
 // folderMaxDepth caps how deep the client can browse below the root folder.
@@ -72,12 +76,13 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	}
 	if info.IsDir() {
 		return &app{
-			folderMode:    true,
-			rootDir:       mediaPath,
-			displayName:   displayName,
-			apkPath:       apkPath,
-			httpPort:      httpPort,
-			clientLogPath: clientLogPath,
+			folderMode:           true,
+			rootDir:              mediaPath,
+			displayName:          displayName,
+			apkPath:              apkPath,
+			httpPort:             httpPort,
+			clientLogPath:        clientLogPath,
+			storyboardIntervalMs: storyboardIntervalMs,
 		}, nil
 	}
 	chapters := chaptersFor(mediaPath)
@@ -92,32 +97,33 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	hdr := probe.isHDR
 	// Keep the thumbnail/storyboard caches next to the executable (in cache/)
 	// rather than the system temp dir, so cleanup is just deleting that folder.
-	cacheRoot := filepath.Join(executableDir(), "cache")
+	cDir := fileCacheDir(mediaPath, info.Size(), info.ModTime())
 	return &app{
-		mediaPath:     mediaPath,
-		mediaName:     filepath.Base(mediaPath),
-		mediaSize:     info.Size(),
-		mediaMod:      info.ModTime(),
-		mediaMime:     mimeForPath(mediaPath),
-		displayName:   displayName,
-		apkPath:       apkPath,
-		httpPort:      httpPort,
-		clientLogPath: clientLogPath,
-		resume:        newResumeStore(resumePath, mediaPath),
-		chapters:      chapters,
-		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cacheRoot, "thumbs")),
-		story:         newStoryboard(mediaPath, mediaDurationMs(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cacheRoot, "storyboard")),
-		probe:         probe,
+		mediaPath:            mediaPath,
+		mediaName:            filepath.Base(mediaPath),
+		mediaSize:            info.Size(),
+		mediaMod:             info.ModTime(),
+		mediaMime:            mimeForPath(mediaPath),
+		displayName:          displayName,
+		apkPath:              apkPath,
+		httpPort:             httpPort,
+		clientLogPath:        clientLogPath,
+		resume:               newResumeStore(resumePath, mediaPath),
+		chapters:             chapters,
+		thumbs:               newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cDir, "thumbs")),
+		story:                newStoryboard(mediaPath, mediaDurationMs(mediaPath), storyboardIntervalMs, hdr, filepath.Join(cDir, "storyboard")),
+		probe:                probe,
 		subtitles: findSidecarSubtitles(mediaPath, func(name string) string {
 			return "/subtitle?name=" + url.QueryEscape(name)
 		}),
-		cacheRoot: cacheRoot,
+		cacheRoot:            cDir,
+		storyboardIntervalMs: storyboardIntervalMs,
 	}, nil
 }
 
 // newMultiRootApp creates a multi-root folder-mode app from multiple directories.
 // Each directory becomes a browsable root the client can select.
-func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, httpPort int) (*app, error) {
+func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
 	roots := make([]rootEntry, 0, len(dirs))
 	for _, d := range dirs {
 		if len(d) == 2 && d[1] == ':' {
@@ -133,13 +139,14 @@ func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, 
 		roots = append(roots, rootEntry{name: filepath.Base(d), dir: d})
 	}
 	return &app{
-		folderMode:    true,
-		multiRoot:     true,
-		roots:         roots,
-		displayName:   displayName,
-		apkPath:       apkPath,
-		httpPort:      httpPort,
-		clientLogPath: clientLogPath,
+		folderMode:           true,
+		multiRoot:            true,
+		roots:                roots,
+		displayName:          displayName,
+		apkPath:              apkPath,
+		httpPort:             httpPort,
+		clientLogPath:        clientLogPath,
+		storyboardIntervalMs: storyboardIntervalMs,
 	}, nil
 }
 
@@ -289,13 +296,12 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/client.apk", a.handleAPK)
 	mux.HandleFunc("/log", a.handleClientLog)
 	mux.HandleFunc("/subtitle", a.handleSubtitle) // sidecar .srt/.ass/... (both modes)
+	mux.HandleFunc("/position", a.handlePosition)
+	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
+	mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
+	mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
 	if a.folderMode {
 		mux.HandleFunc("/list", a.handleList)
-	} else {
-		mux.HandleFunc("/position", a.handlePosition)
-		mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
-		mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
-		mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
 	}
 	return logRequests(mux)
 }
@@ -487,6 +493,95 @@ func (a *app) videoInfo(p mediaProbe) map[string]any {
 	}
 }
 
+type folderMediaItem struct {
+	full     string
+	size     int64
+	modTime  time.Time
+	probe    mediaProbe
+	chapters []Chapter
+	thumbs   *thumbnailer
+	story    *storyboard
+	genOnce  sync.Once
+}
+
+func isVideoFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".ts", ".m2ts":
+		return true
+	}
+	return false
+}
+
+func (a *app) getOrCreateFolderMedia(full string, fi os.FileInfo, probe mediaProbe, chapters []Chapter) *folderMediaItem {
+	a.folderMediaMu.Lock()
+	if a.folderMedia == nil {
+		a.folderMedia = make(map[string]*folderMediaItem)
+	}
+	item, exists := a.folderMedia[full]
+	if exists && item.modTime.Equal(fi.ModTime()) {
+		a.folderMediaMu.Unlock()
+		return item
+	}
+	cDir := fileCacheDir(full, fi.Size(), fi.ModTime())
+	thDir := filepath.Join(cDir, "thumbs")
+	sbDir := filepath.Join(cDir, "storyboard")
+	th := newThumbnailer(full, fi.ModTime(), chapters, probe.isHDR, thDir)
+	sb := newStoryboard(full, mediaDurationMs(full), a.storyboardIntervalMs, probe.isHDR, sbDir)
+
+	item = &folderMediaItem{
+		full:     full,
+		size:     fi.Size(),
+		modTime:  fi.ModTime(),
+		probe:    probe,
+		chapters: chapters,
+		thumbs:   th,
+		story:    sb,
+	}
+	a.folderMedia[full] = item
+	a.folderMediaMu.Unlock()
+
+	if !noCaching && isVideoFile(full) {
+		item.genOnce.Do(func() {
+			if th.available() {
+				go th.warm()
+			}
+			if sb.enabled() {
+				go sb.generate()
+			}
+		})
+	}
+	return item
+}
+
+func (a *app) getFolderMediaByRequest(r *http.Request) *folderMediaItem {
+	rel := r.URL.Query().Get("path")
+	if rel == "" {
+		return nil
+	}
+	var full string
+	var ok bool
+	if a.multiRoot {
+		rootIdx, rok := a.parseRoot(nil, r)
+		if !rok {
+			return nil
+		}
+		full, ok = a.resolveRootPath(rootIdx, rel)
+	} else if a.folderMode {
+		full, ok = a.resolvePath(rel)
+	}
+	if !ok {
+		return nil
+	}
+	fi, err := os.Stat(full)
+	if err != nil || fi.IsDir() {
+		return nil
+	}
+	probe, _ := probeMedia(full)
+	chapters := chaptersFor(full)
+	return a.getOrCreateFolderMedia(full, fi, probe, chapters)
+}
+
 // writeFolderInfo serves /info in folder mode. With no ?path it returns the
 // folder root marker; with a ?path it returns that file's metadata (ffprobe
 // colour on demand — no caching in folder mode). In multi-root mode, ?root=N
@@ -563,6 +658,12 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 	if chapters == nil {
 		chapters = []Chapter{}
 	}
+	var hasThumbs, hasStory bool
+	if !fi.IsDir() && isVideoFile(full) {
+		item := a.getOrCreateFolderMedia(full, fi, probe, chapters)
+		hasThumbs = item.thumbs.available()
+		hasStory = item.story.enabled()
+	}
 	mode := "folder"
 	if a.multiRoot {
 		mode = "multi"
@@ -582,6 +683,8 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		"size":        fi.Size(),
 		"mime":        mimeForPath(full),
 		"chapters":    chapters,
+		"thumbnails":  hasThumbs,
+		"storyboard":  hasStory,
 		"video":       a.videoInfo(probe),
 		"audioTracks": probe.audioTracks,
 		"subtitles":   subsOrEmpty(subs),
@@ -682,10 +785,11 @@ func (a *app) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handlePosition stores (POST ?ms=N) and reports (GET) the last playback
-// position for the requesting client's IP, enabling resume-where-you-left-off.
-// POSTing ms=0 clears the stored position (playback finished).
 func (a *app) handlePosition(w http.ResponseWriter, r *http.Request) {
+	if a.resume == nil {
+		http.Error(w, "position endpoint disabled in folder mode", http.StatusNotFound)
+		return
+	}
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		clientIP = r.RemoteAddr
@@ -720,7 +824,24 @@ func (a *app) handleChapterThumb(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "index must be an integer", http.StatusBadRequest)
 		return
 	}
-	path, err := a.thumbs.get(index)
+	var th *thumbnailer
+	if a.folderMode || a.multiRoot {
+		if r.URL.Query().Get("path") == "" {
+			http.Error(w, "path required in folder mode", http.StatusNotFound)
+			return
+		}
+		item := a.getFolderMediaByRequest(r)
+		if item != nil {
+			th = item.thumbs
+		}
+	} else {
+		th = a.thumbs
+	}
+	if th == nil {
+		http.Error(w, "thumbnail unavailable", http.StatusNotFound)
+		return
+	}
+	path, err := th.get(index)
 	if err != nil {
 		http.Error(w, "thumbnail unavailable", http.StatusNotFound)
 		return
@@ -733,12 +854,25 @@ func (a *app) handleChapterThumb(w http.ResponseWriter, r *http.Request) {
 // handleStoryboardManifest returns the scrubbing-preview layout. 404 until the
 // sprite sheets have finished generating (client may retry).
 func (a *app) handleStoryboardManifest(w http.ResponseWriter, r *http.Request) {
-	if !a.story.isReady() {
+	var sb *storyboard
+	if a.folderMode || a.multiRoot {
+		if r.URL.Query().Get("path") == "" {
+			http.Error(w, "path required in folder mode", http.StatusNotFound)
+			return
+		}
+		item := a.getFolderMediaByRequest(r)
+		if item != nil {
+			sb = item.story
+		}
+	} else {
+		sb = a.story
+	}
+	if sb == nil || !sb.isReady() {
 		http.Error(w, "storyboard not ready", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(a.story.manifest())
+	json.NewEncoder(w).Encode(sb.manifest())
 }
 
 // handleStoryboardSheet serves sprite sheet ?sheet=N.
@@ -748,7 +882,24 @@ func (a *app) handleStoryboardSheet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sheet must be an integer", http.StatusBadRequest)
 		return
 	}
-	path, ok := a.story.sheetPath(n)
+	var sb *storyboard
+	if a.folderMode || a.multiRoot {
+		if r.URL.Query().Get("path") == "" {
+			http.Error(w, "path required in folder mode", http.StatusNotFound)
+			return
+		}
+		item := a.getFolderMediaByRequest(r)
+		if item != nil {
+			sb = item.story
+		}
+	} else {
+		sb = a.story
+	}
+	if sb == nil {
+		http.Error(w, "sheet unavailable", http.StatusNotFound)
+		return
+	}
+	path, ok := sb.sheetPath(n)
 	if !ok {
 		http.Error(w, "sheet unavailable", http.StatusNotFound)
 		return

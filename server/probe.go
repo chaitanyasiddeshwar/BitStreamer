@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -312,18 +311,5 @@ func dolbyVisionAdvisory(mediaPath string) string {
 }
 // findFFprobe looks next to the executable first, then on PATH. Returns "".
 func findFFprobe() string {
-	names := []string{"ffprobe", "ffprobe.exe"}
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		for _, n := range names {
-			p := filepath.Join(dir, n)
-			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-				return p
-			}
-		}
-	}
-	if p, err := exec.LookPath("ffprobe"); err == nil {
-		return p
-	}
-	return ""
+	return findExecutable("ffprobe")
 }

@@ -25,6 +25,8 @@ import java.util.concurrent.Executors
 class StoryboardLoader(
     private val api: ServerApi,
     private val sb: ServerApi.Storyboard,
+    private val path: String? = null,
+    private val rootIndex: Int? = null,
 ) {
     // Cache encoded sheet bytes, not decoded bitmaps: ~1-2 MB per sheet vs. tens
     // of MB decoded, so higher-resolution sheets don't blow up the heap.
@@ -77,7 +79,8 @@ class StoryboardLoader(
 
     private fun fetchSheetBytes(sheet: Int): ByteArray? {
         return try {
-            val conn = URL(api.storyboardSheetUrl(sheet)).openConnection() as HttpURLConnection
+            val url = api.storyboardSheetUrl(sheet, path, rootIndex)
+            val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 3000
             conn.readTimeout = 8000
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
