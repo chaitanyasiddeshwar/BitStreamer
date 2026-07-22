@@ -188,8 +188,7 @@ func main() {
 		}
 		if len(app.chapters) > 0 {
 			if app.thumbs.available() {
-				fmt.Printf("Chapters: %d, generating thumbnails in the background (ffmpeg found)\n", len(app.chapters))
-				go app.thumbs.warm() // pre-generate so the chapter menu is instant
+				fmt.Printf("Chapters: %d, thumbnails available on-demand (ffmpeg found)\n", len(app.chapters))
 			} else {
 				fmt.Printf("Chapters: %d, names only (ffmpeg not found; drop ffmpeg.exe next to bitstreamer.exe for thumbnails)\n", len(app.chapters))
 			}
@@ -211,8 +210,7 @@ func main() {
 			fmt.Printf("ffmpeg/ffprobe output is appended to %s\n", *ffmpegLogFile)
 		}
 		if app.story.enabled() {
-			fmt.Printf("Scrubbing previews: generating in the background (every %ds)\n", *interval)
-			go app.story.generate()
+			fmt.Printf("Scrubbing previews: available on-demand (every %ds)\n", *interval)
 		} else if app.story.ffmpegPath != "" {
 			if *skipPreviews {
 				fmt.Println("Scrubbing previews: skipped by user request (-skip-previews active).")

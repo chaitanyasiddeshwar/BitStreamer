@@ -543,17 +543,6 @@ func (a *app) getOrCreateFolderMedia(full string, fi os.FileInfo, probe mediaPro
 	}
 	a.folderMedia[full] = item
 	a.folderMediaMu.Unlock()
-
-	if !noCaching && isVideoFile(full) {
-		item.genOnce.Do(func() {
-			if th.available() {
-				go th.warm()
-			}
-			if sb.enabled() {
-				go sb.generate()
-			}
-		})
-	}
 	return item
 }
 
