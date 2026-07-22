@@ -350,8 +350,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV")
-        val fallbackToHdr10 = (srcDvProfile == 7) && (srcHdr10Plus || srcStripDV)
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
+        val fallbackToHdr10 = (srcDvProfile == 7) || srcStripDV
         val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
         playerView.player = if (isImage(currentTitle)) {
@@ -470,8 +470,10 @@ class PlayerActivity : Activity() {
                         val urls = playlistUrls
                         if (urls != null && nextIndex < urls.size) {
                             playAt(nextIndex)
+                            return
                         }
                     }
+                    finish()
                 }
                 updateOverlay()
             }
@@ -534,6 +536,7 @@ class PlayerActivity : Activity() {
             putExtra(EXTRA_TITLE, playlistTitles?.getOrNull(index) ?: "")
             putExtra(EXTRA_INFO_PATH, playlistInfoPaths?.getOrNull(index) ?: "")
             putExtra(EXTRA_FOLDER_MODE, true)
+            if (forceStripDV) putExtra(EXTRA_FORCE_STRIP_DV, true)
             rootIndex?.let { putExtra(EXTRA_ROOT_INDEX, it) }
             putStringArrayListExtra(EXTRA_PL_URLS, playlistUrls)
             putStringArrayListExtra(EXTRA_PL_TITLES, playlistTitles)

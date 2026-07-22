@@ -48,10 +48,10 @@ This can be triggered in two ways:
 ### Profile 7 Fallback Isolation (Crucial)
 The HEVC/HDR10 fallback mechanism is **strictly isolated to Dolby Vision Profile 7** files:
 ```kotlin
-val fallbackToHdr10 = (srcDvProfile == 7) && (srcHdr10Plus || srcStripDV)
+val fallbackToHdr10 = (srcDvProfile == 7) || srcStripDV
 ```
-* **For Profile 7:** If the file has HDR10+ metadata (`srcHdr10Plus`) or stripping is active (`srcStripDV` via the server flag or the client's `Strip DV and Play` override), the fallback is triggered.
-* **For Profile 5 and 8:** The fallback is completely bypassed. Hybrid files (such as *Ford v Ferrari* which carries Profile 8.1 DV + HDR10+) will always play natively in **Dolby Vision** rather than falling back, maintaining high-fidelity streaming.
+* **For Profile 7:** Dual-layer Profile 7 files (FEL/MEL) automatically trigger fallback to standard HEVC/HDR10 with on-the-fly NAL 62/63 stripping, ensuring crisp video playback on Fire TV without black screens.
+* **For Profile 5 and 8:** The fallback is bypassed (unless explicitly forced via `srcStripDV`), so single-layer Dolby Vision files play natively in Dolby Vision.
 
 ### How the Fallback Works Under the Hood:
 1. **Decoder Exclusions:** The client player intercepts the decoder selection pipeline inside [`PlayerFactory.kt`](file:///n:/AI/ai_coder/BitStreamer/client/app/src/main/java/com/bitstreamer/client/playback/PlayerFactory.kt#L113-L200), maps the track MIME type from `video/dolby-vision` to `video/hevc`, clears the Dolby Vision `codecs` metadata, and **excludes all hardware Dolby Vision decoders** (filtering out any decoder containing `"dolby"` or `"dovi"`). This forces the device to bind a standard HEVC/HDR10 hardware decoder.
