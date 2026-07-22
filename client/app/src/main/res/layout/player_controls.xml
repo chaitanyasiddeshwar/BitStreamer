@@ -110,6 +110,18 @@
                 android:scaleType="fitCenter"
                 android:contentDescription="@string/opt_stats"
                 android:nextFocusUp="@id/exo_progress" />
+
+            <ImageButton
+                android:id="@+id/btn_previews"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="10dp"
+                android:padding="8dp"
+                android:background="@drawable/options_btn_bg"
+                android:src="@drawable/ic_chapters"
+                android:scaleType="fitCenter"
+                android:contentDescription="Generate Previews"
+                android:nextFocusUp="@id/exo_progress" />
         </LinearLayout>
     </LinearLayout>
 </merge>

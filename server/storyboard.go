@@ -46,6 +46,9 @@ type storyboard struct {
 	tileHeight int
 	tileCount  int
 	sheetCount int
+
+	tilesDone  int32
+	totalTiles int32
 }
 
 func newStoryboard(mediaPath string, durationMs, intervalMs int64, hdr bool, cacheDir string) *storyboard {
@@ -90,6 +93,26 @@ func (s *storyboard) isReady() bool {
 	return s.ready
 }
 
+func (s *storyboard) progress() (done int, total int, percent int, ready bool) {
+	if s.isReady() {
+		tc := s.tileCount
+		if tc == 0 && s.durationMs > 0 && s.intervalMs > 0 {
+			tc = int((s.durationMs + s.intervalMs - 1) / s.intervalMs)
+		}
+		return tc, tc, 100, true
+	}
+	t := atomic.LoadInt32(&s.totalTiles)
+	d := atomic.LoadInt32(&s.tilesDone)
+	if t <= 0 {
+		return 0, 0, 0, false
+	}
+	p := int((float64(d) / float64(t)) * 100)
+	if p > 100 {
+		p = 100
+	}
+	return int(d), int(t), p, false
+}
+
 // generate grabs one keyframe per interval (parallel, capped) and packs them
 // into sprite sheets. Call in the background at startup.
 func (s *storyboard) generate() {
@@ -103,6 +126,8 @@ func (s *storyboard) generate() {
 	if tileCount <= 0 {
 		return
 	}
+	atomic.StoreInt32(&s.totalTiles, int32(tileCount))
+	atomic.StoreInt32(&s.tilesDone, 0)
 	tileDir := filepath.Join(s.cacheDir, "tiles")
 	if err := os.MkdirAll(tileDir, 0o755); err != nil {
 		log.Printf("storyboard: %v", err)
@@ -116,6 +141,7 @@ func (s *storyboard) generate() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			defer atomic.AddInt32(&s.tilesDone, 1)
 			s.sem <- struct{}{}
 			defer func() { <-s.sem }()
 			if err := s.extractTile(idx, tileDir); err != nil {

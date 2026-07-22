@@ -66,7 +66,10 @@ func TestStoryboardEndpoints(t *testing.T) {
 	defer srv.Close()
 
 	// Before generation: manifest 404s.
-	resp, _ := http.Get(srv.URL + "/storyboard.json")
+	resp, err := http.Get(srv.URL + "/storyboard.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("pre-generation manifest = %d, want 404", resp.StatusCode)
 	}
@@ -119,5 +122,45 @@ func TestStoryboardSkipPreviews(t *testing.T) {
 	sb := newStoryboard(path, 30000, 5000, false, t.TempDir())
 	if sb.enabled() {
 		t.Error("expected storyboard to be disabled when -skip-previews is true")
+	}
+}
+
+func TestOnDemandPreviewEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	src, _ := os.ReadFile(filepath.Join("testdata", "chapters_sample.mkv"))
+	path := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := newApp(path, "T", filepath.Join(dir, "c.apk"),
+		filepath.Join(dir, "log.txt"), filepath.Join(dir, "resume.json"), 46898, 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.story.cleanup)
+	h := a.handler()
+
+	// 1. Initial status is idle or ready
+	req := httptest.NewRequest("GET", "/preview-status", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status status = %d, want 200", rec.Code)
+	}
+	var st struct {
+		Status  string `json:"status"`
+		Percent int    `json:"percent"`
+	}
+	json.NewDecoder(rec.Body).Decode(&st)
+	if st.Status != "idle" && st.Status != "ready" {
+		t.Errorf("initial preview-status = %s, want idle or ready", st.Status)
+	}
+
+	// 2. Trigger generation
+	genReq := httptest.NewRequest("POST", "/generate-previews", nil)
+	genRec := httptest.NewRecorder()
+	h.ServeHTTP(genRec, genReq)
+	if genRec.Code != http.StatusOK {
+		t.Fatalf("generate-previews status = %d, want 200", genRec.Code)
 	}
 }

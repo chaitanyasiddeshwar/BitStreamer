@@ -1,39 +1,37 @@
 # Chapter & Seekbar Thumbnails — Architecture & Implementation Plan
 
 > [!NOTE]
-> Single-file chapter thumbnails and scrubbing previews (storyboards) are implemented. This document details the updated architectural plan for **Default Video Folder-Mode Thumbnails**, **Immediate `ffprobe` Metadata Return**, the new **`--no-caching` Server Flag**, and **100% Persistent Disk Caching** across all server runs.
+> Single-file chapter thumbnails and scrubbing previews (storyboards) are implemented. This document details the architectural plan for **On-Demand Video Preview Generation**, **Real-Time Progress Bar**, **Instant `ffprobe` Metadata Return**, the **`--no-caching` Server Flag**, and **100% Persistent Disk Caching** across all server runs.
 
 ---
 
 ## 1. Feature Overview & Goals
 
-1. **Default Operation for Video Files**:
-   - **Automatic Generation**: Every video file playback action (single-file mode, single-folder mode, or multi-root folder mode) automatically extracts chapters via `ffprobe` AND generates chapter thumbnail JPEGs and seekbar storyboard sprite sheets via `ffmpeg`.
-   - **Video Files Only**: Excluded for audio files (`.mp3`, `.flac`, etc.) and image files.
-   - **No Menu Extensions Needed**: `KEYCODE_MENU` options menu remains unchanged (used for Dolby Vision Profile 7 fallback options).
+1. **Fast Default Playback (Zero Disk Contention)**:
+   - Every video file play action starts **instantly** using fast `ffprobe` (~50ms) to populate container chapters (`[{ startMs, name }]`).
+   - By default, playback begins immediately without background `ffmpeg` processes competing for disk I/O while streaming video.
+   - **Persistent Cache Auto-Hit**: If a video was previously processed into `cache/<file_hash>/`, previews are detected and loaded automatically on startup without any user interaction!
 
-2. **Immediate `ffprobe` Metadata & Chapter Return (Fast Startup)**:
-   - `ffprobe` extracts container metadata, stream colorspace, duration, and the full `chapters` array (names + timestamps) in ~50ms.
-   - `/info` **returns immediately** with the full `chapters` list so playback starts without delay and the Chapters menu in `PlayerActivity` is available instantly at playback start (with titles and timestamps).
-   - Chapter thumbnail JPEGs (`/chapter-thumb?index=N`) and seekbar sprite sheets (`/storyboard.json`) generate asynchronously in the background. The Chapters UI shows text/placeholders instantly and fills in thumbnail JPEGs as they finish.
+2. **On-Demand Preview Generation with Real-Time Progress Bar**:
+   - Previews can be generated on-demand either before playing or mid-movie:
+     - **Browser Options (`KEYCODE_MENU`)**:
+       - Regular files: "Play Normally" and "Generate Previews & Play".
+       - Dolby Vision files: "Play Normally", "Strip DV & Play", "Generate Previews & Play", and "Strip DV, Generate Previews & Play".
+     - **Player Mid-Movie Icon**: A "Generate Previews" button in the bottom control row next to "Stats for Nerds".
+   - **Shared Progress Bar Overlay (0% -> 100%)**:
+     - Pauses playback (at 0:00 for launch option, or at current timestamp for mid-movie icon).
+     - Displays an on-screen progress bar overlay showing real-time progress (`X%`).
+     - Server endpoints `POST /generate-previews` and `GET /preview-status` report real-time percentage (`done / total`).
+     - If persistent cache is already present, `POST /generate-previews` returns 100% instantly!
+     - Upon 100% completion, progress bar hides, seekbar previews and chapter thumbnails attach, and playback automatically resumes!
 
 3. **New `--no-caching` Server Flag**:
    - Command-line flag: `-no-caching` / `--no-caching`.
-   - **When `--no-caching` is set**:
-     - Disk caching and generation of chapter thumbnail JPEGs and seekbar storyboard sprite sheets are **disabled** (zero thumbnail disk usage, zero ffmpeg CPU load for previews).
-     - **Chapter Discovery Always Enabled**: `ffprobe` still executes fast (~50ms) to discover container chapters and populate `info.chapters`, ensuring chapter navigation always works!
+   - Disables disk caching and background generation of thumbnail JPEGs and seekbar sprite sheets (zero thumbnail disk usage, zero ffmpeg CPU load for previews). Chapter discovery via `ffprobe` remains enabled.
 
-4. **Binary Discovery Priority (`ffmpeg` & `ffprobe`)**:
-   - Executable lookup order:
-     1. **Executable Directory** (e.g. `ffmpeg.exe` / `ffprobe.exe` placed next to `bitstreamer.exe` — takes priority).
-     2. **System `PATH`** (fallback if absent next to the binary).
-   - Thumbnail and seekbar storyboard generation are enabled **only** if both `ffmpeg` and `ffprobe` are discovered.
-   - If binaries are absent, chapter discovery falls back gracefully (or container parsing), and thumbnail/storyboard flags report `false`.
-
-5. **100% Persistent Disk Cache**:
-   - Make all chapter JPEGs and seekbar storyboard sprite sheets **permanently persistent** under `cache/<file_hash>/` across server restarts.
+4. **100% Persistent Disk Cache**:
+   - All chapter JPEGs and seekbar storyboard sprite sheets are permanently persistent under `cache/<file_hash>/` across server restarts.
    - Key every cache directory by `SHA256(canonical_path + size + mtime)[:16]`.
-   - Re-use cached thumbnails automatically whenever a video is played—no duplicate `ffmpeg` processes.
 
 ---
 

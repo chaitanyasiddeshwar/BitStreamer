@@ -115,6 +115,10 @@ class PlayerActivity : Activity() {
     private lateinit var scrubPreview: LinearLayout
     private lateinit var scrubPreviewImage: ImageView
     private lateinit var scrubPreviewTime: TextView
+    private var previewProgressOverlay: View? = null
+    private var previewProgressBar: android.widget.ProgressBar? = null
+    private var previewProgressText: TextView? = null
+    private var generatePreviewsOnLaunch = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -195,6 +199,9 @@ class PlayerActivity : Activity() {
         scrubPreview = findViewById(R.id.scrub_preview)
         scrubPreviewImage = findViewById(R.id.scrub_preview_image)
         scrubPreviewTime = findViewById(R.id.scrub_preview_time)
+        previewProgressOverlay = findViewById(R.id.preview_progress_overlay)
+        previewProgressBar = findViewById(R.id.preview_progress_bar)
+        previewProgressText = findViewById(R.id.preview_progress_text)
         styleSubtitles()
     }
 
@@ -269,6 +276,7 @@ class PlayerActivity : Activity() {
         playlistInfoPaths = intent.getStringArrayListExtra(EXTRA_PL_INFO_PATHS)
         playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
         forceStripDV = intent.getBooleanExtra(EXTRA_FORCE_STRIP_DV, false)
+        generatePreviewsOnLaunch = intent.getBooleanExtra(EXTRA_GENERATE_PREVIEWS, false)
         if (intent.hasExtra(EXTRA_ROOT_INDEX)) {
             rootIndex = intent.getIntExtra(EXTRA_ROOT_INDEX, 0)
         }
@@ -307,6 +315,9 @@ class PlayerActivity : Activity() {
                     srcAudioTracks = info?.audioTracks ?: emptyList()
                     externalSubs = info?.subtitles ?: emptyList()
                     initializePlayer(url, resumeMs)
+                    if (generatePreviewsOnLaunch) {
+                        startPreviewGenerationProgress(isLaunch = true)
+                    }
                 }
             }
         }.start()
@@ -582,6 +593,9 @@ class PlayerActivity : Activity() {
         }
         btnChapters?.setOnClickListener { showChaptersDialog() }
         playerView.findViewById<ImageButton>(R.id.btn_stats)?.setOnClickListener { toggleStats() }
+        playerView.findViewById<ImageButton>(R.id.btn_previews)?.setOnClickListener {
+            startPreviewGenerationProgress(isLaunch = false)
+        }
 
         // Seek-bar D-pad step = storyboard interval (default 30s), so each
         // left/right press lands on the next preview frame — and no more
@@ -618,6 +632,55 @@ class PlayerActivity : Activity() {
         } else {
             btnChapters?.visibility = View.GONE
         }
+    }
+
+    private fun startPreviewGenerationProgress(isLaunch: Boolean) {
+        val a = api ?: return
+        mainHandler.post {
+            player?.playWhenReady = false
+            previewProgressOverlay?.visibility = View.VISIBLE
+            previewProgressBar?.progress = 0
+            previewProgressText?.text = "0%"
+        }
+        Thread {
+            val statusInit = a.startPreviewGeneration(infoPath.ifEmpty { null }, rootIndex)
+            if (statusInit?.status == "ready" || (statusInit?.percent ?: 0) >= 100) {
+                val sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+                mainHandler.post {
+                    previewProgressOverlay?.visibility = View.GONE
+                    if (sb != null) enableStoryboard(sb)
+                    thumbnailLoader?.release()
+                    thumbnailLoader = ChapterThumbnailLoader(baseUrl, infoPath.ifEmpty { null }, rootIndex)
+                    player?.playWhenReady = true
+                }
+                return@Thread
+            }
+            while (!isFinishing) {
+                val status = a.getPreviewStatus(infoPath.ifEmpty { null }, rootIndex)
+                if (status != null) {
+                    mainHandler.post {
+                        previewProgressBar?.progress = status.percent
+                        previewProgressText?.text = "${status.percent}% (${status.done}/${status.total})"
+                    }
+                    if (status.status == "ready" || status.percent >= 100) {
+                        val sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+                        mainHandler.post {
+                            previewProgressOverlay?.visibility = View.GONE
+                            if (sb != null) enableStoryboard(sb)
+                            thumbnailLoader?.release()
+                            thumbnailLoader = ChapterThumbnailLoader(baseUrl, infoPath.ifEmpty { null }, rootIndex)
+                            player?.playWhenReady = true
+                        }
+                        break
+                    }
+                }
+                try {
+                    Thread.sleep(500)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }.start()
     }
 
     private data class TrackEntry(
@@ -1137,6 +1200,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_FOLDER_MODE = "folderMode"
         const val EXTRA_INFO_PATH = "infoPath"
         const val EXTRA_FORCE_STRIP_DV = "forceStripDV"
+        const val EXTRA_GENERATE_PREVIEWS = "generatePreviews"
         const val EXTRA_PL_URLS = "playlistUrls"
         const val EXTRA_PL_TITLES = "playlistTitles"
         const val EXTRA_PL_INFO_PATHS = "playlistInfoPaths"

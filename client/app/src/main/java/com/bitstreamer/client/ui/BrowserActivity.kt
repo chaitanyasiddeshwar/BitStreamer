@@ -178,11 +178,7 @@ class BrowserActivity : Activity() {
             mainHandler.post {
                 progressDialog.dismiss()
                 if (info != null) {
-                    if (info.dvProfile >= 0) {
-                        showFileMenu(entry)
-                    } else {
-                        android.widget.Toast.makeText(this, "Options menu is only available for Dolby Vision files.", android.widget.Toast.LENGTH_SHORT).show()
-                    }
+                    showFileMenu(entry, info.dvProfile >= 0)
                 } else {
                     android.widget.Toast.makeText(this, "Failed to read file metadata.", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -190,16 +186,36 @@ class BrowserActivity : Activity() {
         }.start()
     }
 
-    private fun showFileMenu(entry: ServerApi.FolderEntry) {
-        val options = arrayOf("Play Normally", "Strip DV and Play")
+    private fun showFileMenu(entry: ServerApi.FolderEntry, isDv: Boolean) {
+        val options = if (isDv) {
+            arrayOf(
+                "Play Normally",
+                "Strip DV and Play",
+                "Generate Previews & Play",
+                "Strip DV, Generate Previews & Play"
+            )
+        } else {
+            arrayOf(
+                "Play Normally",
+                "Generate Previews & Play"
+            )
+        }
         AlertDialog.Builder(this)
             .setTitle(entry.name)
             .setItems(options) { dialog, which ->
                 dialog.dismiss()
-                if (which == 1) {
-                    playFileWithStripDV(entry)
+                if (isDv) {
+                    when (which) {
+                        0 -> playFile(entry, forceStripDv = false, generatePreviews = false)
+                        1 -> playFile(entry, forceStripDv = true, generatePreviews = false)
+                        2 -> playFile(entry, forceStripDv = false, generatePreviews = true)
+                        3 -> playFile(entry, forceStripDv = true, generatePreviews = true)
+                    }
                 } else {
-                    playFile(entry)
+                    when (which) {
+                        0 -> playFile(entry, forceStripDv = false, generatePreviews = false)
+                        1 -> playFile(entry, forceStripDv = false, generatePreviews = true)
+                    }
                 }
             }
             .show()
@@ -305,7 +321,7 @@ class BrowserActivity : Activity() {
         }.start()
     }
 
-    private fun playFile(selected: ServerApi.FolderEntry) {
+    private fun playFile(selected: ServerApi.FolderEntry, forceStripDv: Boolean = false, generatePreviews: Boolean = false) {
         val files = entries.filter { !it.isDir }
         val index = files.indexOfFirst { it.name == selected.name }.coerceAtLeast(0)
         val urls = ArrayList<String>(files.size)
@@ -326,6 +342,8 @@ class BrowserActivity : Activity() {
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_TITLES, titles)
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_INFO_PATHS, infoPaths)
             putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
+            if (forceStripDv) putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+            if (generatePreviews) putExtra(PlayerActivity.EXTRA_GENERATE_PREVIEWS, true)
             currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })
     }

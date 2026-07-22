@@ -271,4 +271,56 @@ class ServerApi(private val baseUrl: String) {
         } catch (_: Exception) {
         }
     }
+
+    data class PreviewStatus(
+        val status: String,
+        val percent: Int,
+        val done: Int,
+        val total: Int
+    )
+
+    fun startPreviewGeneration(path: String? = null, rootIndex: Int? = null): PreviewStatus? {
+        return try {
+            val params = mutableListOf<String>()
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val url = if (params.isEmpty()) "$baseUrl/generate-previews" else "$baseUrl/generate-previews?${params.joinToString("&")}"
+            val json = postJson(url)
+            PreviewStatus(
+                status = json.optString("status", "idle"),
+                percent = json.optInt("percent", 0),
+                done = json.optInt("done", 0),
+                total = json.optInt("total", 0)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getPreviewStatus(path: String? = null, rootIndex: Int? = null): PreviewStatus? {
+        return try {
+            val params = mutableListOf<String>()
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val url = if (params.isEmpty()) "$baseUrl/preview-status" else "$baseUrl/preview-status?${params.joinToString("&")}"
+            val json = getJson(url)
+            PreviewStatus(
+                status = json.optString("status", "idle"),
+                percent = json.optInt("percent", 0),
+                done = json.optInt("done", 0),
+                total = json.optInt("total", 0)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun postJson(url: String): JSONObject {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.connectTimeout = 2000
+        conn.readTimeout = 2000
+        val body = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+        return JSONObject(body)
+    }
 }

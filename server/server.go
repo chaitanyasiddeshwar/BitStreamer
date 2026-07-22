@@ -54,6 +54,7 @@ type app struct {
 	chapters      []Chapter
 	thumbs        *thumbnailer
 	story         *storyboard
+	genOnce       sync.Once
 	probe         mediaProbe
 	subtitles     []subtitleTrack // sidecar .srt/.ass/... next to the movie (single-file mode)
 	cacheRoot     string
@@ -300,6 +301,8 @@ func (a *app) handler() http.Handler {
 	mux.HandleFunc("/chapter-thumb", a.handleChapterThumb)
 	mux.HandleFunc("/storyboard.json", a.handleStoryboardManifest)
 	mux.HandleFunc("/storyboard", a.handleStoryboardSheet)
+	mux.HandleFunc("/generate-previews", a.handleGeneratePreviews)
+	mux.HandleFunc("/preview-status", a.handlePreviewStatus)
 	if a.folderMode {
 		mux.HandleFunc("/list", a.handleList)
 	}
@@ -907,6 +910,98 @@ func (a *app) handleStoryboardSheet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "max-age=86400")
 	http.ServeFile(w, r, path)
+}
+
+func (a *app) handleGeneratePreviews(w http.ResponseWriter, r *http.Request) {
+	var th *thumbnailer
+	var sb *storyboard
+	var full string
+	if a.folderMode || a.multiRoot {
+		if r.URL.Query().Get("path") == "" {
+			http.Error(w, "path required in folder mode", http.StatusBadRequest)
+			return
+		}
+		item := a.getFolderMediaByRequest(r)
+		if item != nil {
+			th = item.thumbs
+			sb = item.story
+			full = item.full
+			if !noCaching && isVideoFile(full) {
+				item.genOnce.Do(func() {
+					if th.available() {
+						go th.warm()
+					}
+					if sb.enabled() {
+						go sb.generate()
+					}
+				})
+			}
+		}
+	} else {
+		th = a.thumbs
+		sb = a.story
+		full = a.mediaPath
+		if !noCaching && isVideoFile(full) {
+			a.genOnce.Do(func() {
+				if th.available() {
+					go th.warm()
+				}
+				if sb.enabled() {
+					go sb.generate()
+				}
+			})
+		}
+	}
+	if sb == nil {
+		http.Error(w, "previews disabled or unavailable", http.StatusNotFound)
+		return
+	}
+	done, total, percent, ready := sb.progress()
+	status := "generating"
+	if ready {
+		status = "ready"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":  status,
+		"percent": percent,
+		"done":    done,
+		"total":   total,
+	})
+}
+
+func (a *app) handlePreviewStatus(w http.ResponseWriter, r *http.Request) {
+	var sb *storyboard
+	if a.folderMode || a.multiRoot {
+		if r.URL.Query().Get("path") == "" {
+			http.Error(w, "path required in folder mode", http.StatusBadRequest)
+			return
+		}
+		item := a.getFolderMediaByRequest(r)
+		if item != nil {
+			sb = item.story
+		}
+	} else {
+		sb = a.story
+	}
+	if sb == nil {
+		http.Error(w, "previews unavailable", http.StatusNotFound)
+		return
+	}
+	done, total, percent, ready := sb.progress()
+	status := "idle"
+	if ready {
+		status = "ready"
+	} else if total > 0 {
+		status = "generating"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":  status,
+		"percent": percent,
+		"done":    done,
+		"total":   total,
+	})
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
