@@ -636,6 +636,7 @@ class PlayerActivity : Activity() {
 
     private fun startPreviewGenerationProgress(isLaunch: Boolean) {
         val a = api ?: return
+        RemoteLog.d(TAG, "startPreviewGenerationProgress triggered for $infoPath (isLaunch=$isLaunch)")
         mainHandler.post {
             player?.playWhenReady = false
             previewProgressOverlay?.visibility = View.VISIBLE
@@ -644,9 +645,26 @@ class PlayerActivity : Activity() {
         }
         Thread {
             val statusInit = a.startPreviewGeneration(infoPath.ifEmpty { null }, rootIndex)
-            if (statusInit?.status == "ready" || (statusInit?.percent ?: 0) >= 100) {
-                val sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+            if (statusInit == null) {
+                RemoteLog.d(TAG, "startPreviewGeneration returned null for $infoPath — ffmpeg not installed or server error")
                 mainHandler.post {
+                    previewProgressOverlay?.visibility = View.GONE
+                    android.widget.Toast.makeText(this@PlayerActivity, "ffmpeg is not installed on the server", android.widget.Toast.LENGTH_LONG).show()
+                    player?.playWhenReady = true
+                }
+                return@Thread
+            }
+            if (statusInit.status == "ready" || statusInit.percent >= 100) {
+                RemoteLog.d(TAG, "preview generation already ready for $infoPath (cache hit)")
+                var sb: ServerApi.Storyboard? = null
+                repeat(5) {
+                    sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+                    if (sb != null) return@repeat
+                    try { Thread.sleep(200) } catch (_: InterruptedException) {}
+                }
+                mainHandler.post {
+                    previewProgressBar?.progress = 100
+                    previewProgressText?.text = "100%"
                     previewProgressOverlay?.visibility = View.GONE
                     if (sb != null) enableStoryboard(sb)
                     thumbnailLoader?.release()
@@ -663,8 +681,16 @@ class PlayerActivity : Activity() {
                         previewProgressText?.text = "${status.percent}% (${status.done}/${status.total})"
                     }
                     if (status.status == "ready" || status.percent >= 100) {
-                        val sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+                        RemoteLog.d(TAG, "preview generation finished (100%) for $infoPath")
+                        var sb: ServerApi.Storyboard? = null
+                        repeat(5) {
+                            sb = a.getStoryboard(infoPath.ifEmpty { null }, rootIndex)
+                            if (sb != null) return@repeat
+                            try { Thread.sleep(200) } catch (_: InterruptedException) {}
+                        }
                         mainHandler.post {
+                            previewProgressBar?.progress = 100
+                            previewProgressText?.text = "100%"
                             previewProgressOverlay?.visibility = View.GONE
                             if (sb != null) enableStoryboard(sb)
                             thumbnailLoader?.release()
@@ -673,6 +699,8 @@ class PlayerActivity : Activity() {
                         }
                         break
                     }
+                } else {
+                    RemoteLog.d(TAG, "getPreviewStatus returned null for $infoPath during polling")
                 }
                 try {
                     Thread.sleep(500)

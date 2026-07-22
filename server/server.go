@@ -941,7 +941,8 @@ func (a *app) handleGeneratePreviews(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	if sb == nil {
+	if sb == nil || !sb.enabled() {
+		log.Printf("[previews] POST /generate-previews failed: previews disabled or ffmpeg missing for %s", full)
 		http.Error(w, "previews disabled or unavailable", http.StatusNotFound)
 		return
 	}
@@ -950,6 +951,7 @@ func (a *app) handleGeneratePreviews(w http.ResponseWriter, r *http.Request) {
 	if ready {
 		status = "ready"
 	}
+	log.Printf("[previews] POST /generate-previews for %s -> status=%s, percent=%d%% (%d/%d)", filepath.Base(full), status, percent, done, total)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":  status,
@@ -1056,6 +1058,9 @@ func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
+		if sw.status == http.StatusOK {
+			return // ignore 200 OK responses as requested
+		}
 		if r.URL.Path == "/position" && sw.status < 400 {
 			return // 5-second heartbeat; logging it would drown the console
 		}

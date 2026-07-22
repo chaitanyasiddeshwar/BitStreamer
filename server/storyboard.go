@@ -106,9 +106,9 @@ func (s *storyboard) progress() (done int, total int, percent int, ready bool) {
 	if t <= 0 {
 		return 0, 0, 0, false
 	}
-	p := int((float64(d) / float64(t)) * 100)
-	if p > 100 {
-		p = 100
+	p := int((float64(d) / float64(t)) * 99.0)
+	if p > 99 {
+		p = 99
 	}
 	return int(d), int(t), p, false
 }

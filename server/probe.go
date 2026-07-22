@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -111,9 +113,66 @@ func extractTitle(tags map[string]string) string {
 	return ""
 }
 
-// probeMedia runs ffprobe on the video/audio streams. Returns ok=false if ffprobe
-// isn't available, so the caller can fall back to container-based detection.
+// probeMedia runs ffprobe on the video/audio streams or loads from cache.
 func probeMedia(path string) (mediaProbe, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return probeMediaDirect(path)
+	}
+	cDir := fileCacheDir(path, fi.Size(), fi.ModTime())
+	jsonPath := chapterCachePath(cDir, path)
+
+	if mc := readMediaCache(jsonPath); mc != nil && mc.Probe != nil {
+		p := mediaProbe{
+			isHDR:              mc.Probe.IsHDR,
+			hdr10plus:          mc.Probe.Hdr10plus,
+			colorTransfer:      mc.Probe.ColorTransfer,
+			colorSpace:         mc.Probe.ColorSpace,
+			dvProfile:          mc.Probe.DvProfile,
+			summary:            mc.Probe.Summary,
+			videoBitrate:       mc.Probe.VideoBitrate,
+			audioBitrate:       mc.Probe.AudioBitrate,
+			videoCodec:         mc.Probe.VideoCodec,
+			videoProfile:       mc.Probe.VideoProfile,
+			videoLevel:         mc.Probe.VideoLevel,
+			videoRFrameRate:    mc.Probe.VideoRFrameRate,
+			videoAvgFrameRate:  mc.Probe.VideoAvgFrameRate,
+			videoPixFmt:        mc.Probe.VideoPixFmt,
+			videoBitsPerSample: mc.Probe.VideoBitsPerSample,
+			audioTracks:        mc.Probe.AudioTracks,
+		}
+		return p, true
+	}
+
+	p, ok := probeMediaDirect(path)
+	if ok {
+		updateMediaCache(jsonPath, path, func(mc *MediaCache) {
+			mc.Size = fi.Size()
+			mc.Probe = &MediaProbeCache{
+				IsHDR:              p.isHDR,
+				Hdr10plus:          p.hdr10plus,
+				ColorTransfer:      p.colorTransfer,
+				ColorSpace:         p.colorSpace,
+				DvProfile:          p.dvProfile,
+				Summary:            p.summary,
+				VideoBitrate:       p.videoBitrate,
+				AudioBitrate:       p.audioBitrate,
+				VideoCodec:         p.videoCodec,
+				VideoProfile:       p.videoProfile,
+				VideoLevel:         p.videoLevel,
+				VideoRFrameRate:    p.videoRFrameRate,
+				VideoAvgFrameRate:  p.videoAvgFrameRate,
+				VideoPixFmt:        p.videoPixFmt,
+				VideoBitsPerSample: p.videoBitsPerSample,
+				AudioTracks:        p.audioTracks,
+			}
+		})
+		log.Printf("[probe] saved stream metadata to cache for %s", filepath.Base(path))
+	}
+	return p, ok
+}
+
+func probeMediaDirect(path string) (mediaProbe, bool) {
 	ffprobe := findFFprobe()
 	if ffprobe == "" {
 		return mediaProbe{}, false

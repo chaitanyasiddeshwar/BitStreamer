@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -25,9 +26,18 @@ var (
 	noCaching bool
 )
 
-func main() {
-	log.SetFlags(log.Ltime)
+func initServerLog(path string) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot open server log %s: %v\n", path, err)
+		return
+	}
+	mw := io.MultiWriter(os.Stdout, f)
+	log.SetOutput(mw)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+}
 
+func main() {
 	flag.BoolVar(&stripDV, "stripdv", false, "force client-side stripping of Dolby Vision metadata to fallback to HDR10")
 	flag.BoolVar(&noCaching, "no-caching", false, "disable disk caching of thumbnail JPEGs and seekbar sprite sheets (chapters discovery remains enabled)")
 
@@ -35,6 +45,7 @@ func main() {
 	name := flag.String("name", "", "display name announced to clients (default: hostname)")
 	apk := flag.String("apk", "", "path to the client APK served at /client.apk (default: client.apk next to the executable)")
 	clientLog := flag.String("clientlog", "", "file where client diagnostics POSTed to /log are appended (default: client-logs.txt next to the executable)")
+	serverLog := flag.String("serverlog", "", "file where server logs are appended (default: server.log next to the executable)")
 	resumeFile := flag.String("resumefile", "", "file where per-client resume positions are stored (default: resume.json next to the executable)")
 	interval := flag.Int("interval", 30, "seconds between scrubbing-preview thumbnails (storyboard); also the seek-bar step on the client")
 	skipPreviews := flag.Bool("skip-previews", false, "skip ffmpeg seek bar previews (storyboard) generation")
@@ -67,6 +78,11 @@ func main() {
 	if exe, err := os.Executable(); err == nil {
 		exeDir = filepath.Dir(exe)
 	}
+	if *serverLog == "" {
+		*serverLog = filepath.Join(exeDir, "server.log")
+	}
+	initServerLog(*serverLog)
+
 	if *apk == "" {
 		*apk = filepath.Join(exeDir, "client.apk")
 	}

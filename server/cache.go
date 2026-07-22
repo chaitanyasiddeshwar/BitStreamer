@@ -3,10 +3,13 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +31,101 @@ func cacheBaseDir() string {
 func fileCacheDir(path string, size int64, modTime time.Time) string {
 	hash := fileCacheHash(path, size, modTime)
 	return filepath.Join(cacheBaseDir(), hash)
+}
+
+// chapterCachePath returns the JSON file path inside cacheDir named after the movie file:
+// e.g. cache/hash/Ford.v.Ferrari.2019.json
+func chapterCachePath(cacheDir, mediaPath string) string {
+	base := filepath.Base(mediaPath)
+	ext := filepath.Ext(base)
+	nameWithoutExt := strings.TrimSuffix(base, ext)
+	return filepath.Join(cacheDir, nameWithoutExt+".json")
+}
+
+type MediaCache struct {
+	File       string           `json:"file"`
+	Path       string           `json:"path"`
+	Size       int64            `json:"size"`
+	DurationMs int64            `json:"durationMs,omitempty"`
+	Probe      *MediaProbeCache `json:"probe,omitempty"`
+	Chapters   []Chapter        `json:"chapters"`
+}
+
+type MediaProbeCache struct {
+	IsHDR              bool              `json:"isHDR"`
+	Hdr10plus          bool              `json:"hdr10plus"`
+	ColorTransfer      string            `json:"colorTransfer,omitempty"`
+	ColorSpace         string            `json:"colorSpace,omitempty"`
+	DvProfile          int               `json:"dvProfile"`
+	Summary            string            `json:"summary,omitempty"`
+	VideoBitrate       int64             `json:"videoBitrate,omitempty"`
+	AudioBitrate       int64             `json:"audioBitrate,omitempty"`
+	VideoCodec         string            `json:"videoCodec,omitempty"`
+	VideoProfile       string            `json:"videoProfile,omitempty"`
+	VideoLevel         string            `json:"videoLevel,omitempty"`
+	VideoRFrameRate    string            `json:"videoRFrameRate,omitempty"`
+	VideoAvgFrameRate  string            `json:"videoAvgFrameRate,omitempty"`
+	VideoPixFmt        string            `json:"videoPixFmt,omitempty"`
+	VideoBitsPerSample int               `json:"videoBitsPerSample,omitempty"`
+	AudioTracks        []audioTrackProbe `json:"audioTracks,omitempty"`
+}
+
+var mediaCacheMu sync.Mutex
+
+func readMediaCache(jsonPath string) *MediaCache {
+	if noCaching {
+		return nil
+	}
+	mediaCacheMu.Lock()
+	defer mediaCacheMu.Unlock()
+
+	f, err := os.Open(jsonPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var mc MediaCache
+	if err := json.NewDecoder(f).Decode(&mc); err != nil {
+		return nil
+	}
+	return &mc
+}
+
+func updateMediaCache(jsonPath, mediaPath string, updateFn func(mc *MediaCache)) {
+	if noCaching {
+		return
+	}
+	mediaCacheMu.Lock()
+	defer mediaCacheMu.Unlock()
+
+	var mc MediaCache
+	if f, err := os.Open(jsonPath); err == nil {
+		json.NewDecoder(f).Decode(&mc)
+		f.Close()
+	}
+
+	mc.File = filepath.Base(mediaPath)
+	mc.Path = mediaPath
+	if mc.Chapters == nil {
+		mc.Chapters = []Chapter{}
+	}
+
+	updateFn(&mc)
+
+	dir := filepath.Dir(jsonPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.Create(jsonPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	enc.Encode(mc)
 }
 
 // hasCachedThumbs reports whether all chapter thumbnail JPEGs for chapterCount

@@ -178,7 +178,7 @@ class BrowserActivity : Activity() {
             mainHandler.post {
                 progressDialog.dismiss()
                 if (info != null) {
-                    showFileMenu(entry, info.dvProfile >= 0)
+                    showFileMenu(entry, info.dvProfile >= 0, info.storyboardAvailable)
                 } else {
                     android.widget.Toast.makeText(this, "Failed to read file metadata.", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -186,7 +186,7 @@ class BrowserActivity : Activity() {
         }.start()
     }
 
-    private fun showFileMenu(entry: ServerApi.FolderEntry, isDv: Boolean) {
+    private fun showFileMenu(entry: ServerApi.FolderEntry, isDv: Boolean, storyboardAvailable: Boolean) {
         val options = if (isDv) {
             arrayOf(
                 "Play Normally",
@@ -204,19 +204,12 @@ class BrowserActivity : Activity() {
             .setTitle(entry.name)
             .setItems(options) { dialog, which ->
                 dialog.dismiss()
-                if (isDv) {
-                    when (which) {
-                        0 -> playFile(entry, forceStripDv = false, generatePreviews = false)
-                        1 -> playFile(entry, forceStripDv = true, generatePreviews = false)
-                        2 -> playFile(entry, forceStripDv = false, generatePreviews = true)
-                        3 -> playFile(entry, forceStripDv = true, generatePreviews = true)
-                    }
-                } else {
-                    when (which) {
-                        0 -> playFile(entry, forceStripDv = false, generatePreviews = false)
-                        1 -> playFile(entry, forceStripDv = false, generatePreviews = true)
-                    }
+                val genPreviews = if (isDv) (which == 2 || which == 3) else (which == 1)
+                if (genPreviews && !storyboardAvailable) {
+                    android.widget.Toast.makeText(this, "ffmpeg is not installed on the server; playing normally.", android.widget.Toast.LENGTH_LONG).show()
                 }
+                val forceStrip = if (isDv) (which == 1 || which == 3) else false
+                playFile(entry, forceStripDv = forceStrip, generatePreviews = genPreviews && storyboardAvailable)
             }
             .show()
     }

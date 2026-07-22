@@ -292,7 +292,8 @@ class ServerApi(private val baseUrl: String) {
                 done = json.optInt("done", 0),
                 total = json.optInt("total", 0)
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            com.bitstreamer.client.logging.RemoteLog.d("ServerApi", "startPreviewGeneration error for $path: ${e.message}")
             null
         }
     }
@@ -310,7 +311,8 @@ class ServerApi(private val baseUrl: String) {
                 done = json.optInt("done", 0),
                 total = json.optInt("total", 0)
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            com.bitstreamer.client.logging.RemoteLog.d("ServerApi", "getPreviewStatus error for $path: ${e.message}")
             null
         }
     }

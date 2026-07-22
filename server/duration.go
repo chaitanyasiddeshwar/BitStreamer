@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -9,10 +10,30 @@ import (
 )
 
 // mediaDurationMs returns the media's total duration in milliseconds via ffprobe
-// (format=duration), which works for every container ffprobe understands.
-// Returns 0 if ffprobe is unavailable or the file has no duration — that just
-// disables the scrubbing storyboard.
+// or from the persistent JSON cache file.
 func mediaDurationMs(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return probeDurationDirect(path)
+	}
+	cDir := fileCacheDir(path, fi.Size(), fi.ModTime())
+	jsonPath := chapterCachePath(cDir, path)
+
+	if mc := readMediaCache(jsonPath); mc != nil && mc.DurationMs > 0 {
+		return mc.DurationMs
+	}
+
+	dur := probeDurationDirect(path)
+	if dur > 0 {
+		updateMediaCache(jsonPath, path, func(mc *MediaCache) {
+			mc.Size = fi.Size()
+			mc.DurationMs = dur
+		})
+	}
+	return dur
+}
+
+func probeDurationDirect(path string) int64 {
 	ffprobe := findFFprobe()
 	if ffprobe == "" {
 		return 0
