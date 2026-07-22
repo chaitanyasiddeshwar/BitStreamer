@@ -118,7 +118,7 @@
                 android:layout_marginStart="10dp"
                 android:padding="8dp"
                 android:background="@drawable/options_btn_bg"
-                android:src="@drawable/ic_chapters"
+                android:src="@drawable/ic_previews"
                 android:scaleType="fitCenter"
                 android:contentDescription="Generate Previews"
                 android:nextFocusUp="@id/exo_progress" />

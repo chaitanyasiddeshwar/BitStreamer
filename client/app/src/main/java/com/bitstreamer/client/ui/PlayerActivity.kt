@@ -593,8 +593,14 @@ class PlayerActivity : Activity() {
         }
         btnChapters?.setOnClickListener { showChaptersDialog() }
         playerView.findViewById<ImageButton>(R.id.btn_stats)?.setOnClickListener { toggleStats() }
-        playerView.findViewById<ImageButton>(R.id.btn_previews)?.setOnClickListener {
-            startPreviewGenerationProgress(isLaunch = false)
+        val btnPreviews = playerView.findViewById<ImageButton>(R.id.btn_previews)
+        if (storyboardEnabled) {
+            btnPreviews?.visibility = View.VISIBLE
+            btnPreviews?.setOnClickListener {
+                showPreviewConfirmationDialog()
+            }
+        } else {
+            btnPreviews?.visibility = View.GONE
         }
 
         // Seek-bar D-pad step = storyboard interval (default 30s), so each
@@ -632,6 +638,21 @@ class PlayerActivity : Activity() {
         } else {
             btnChapters?.visibility = View.GONE
         }
+    }
+
+    private fun showPreviewConfirmationDialog() {
+        playerView.hideController()
+        AlertDialog.Builder(this)
+            .setTitle("Generate Previews")
+            .setMessage("Do you want to generate seekbar previews and thumbnails for this video?")
+            .setPositiveButton("Generate") { dialog, _ ->
+                dialog.dismiss()
+                startPreviewGenerationProgress(isLaunch = false)
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun startPreviewGenerationProgress(isLaunch: Boolean) {
