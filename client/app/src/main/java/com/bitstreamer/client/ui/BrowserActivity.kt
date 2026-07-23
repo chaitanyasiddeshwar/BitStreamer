@@ -11,8 +11,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.BaseAdapter
+import android.widget.CheckBox
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import com.bitstreamer.client.R
@@ -187,34 +190,60 @@ class BrowserActivity : Activity() {
     }
 
     private fun showFileMenu(entry: ServerApi.FolderEntry, isDv: Boolean, storyboardAvailable: Boolean) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 30, 40, 10)
+        }
+
+        val cbPreviews = CheckBox(this).apply {
+            text = "Generate Seekbar Previews"
+            visibility = if (storyboardAvailable) View.VISIBLE else View.GONE
+        }
+        container.addView(cbPreviews)
+
         val options = if (isDv) {
             arrayOf(
                 "Play Normally",
                 "Strip DV and Play",
-                "Generate Previews & Play",
-                "Strip DV, Generate Previews & Play"
+                "Convert to DV8 and Play"
             )
         } else {
             arrayOf(
-                "Play Normally",
-                "Generate Previews & Play"
+                "Play Normally"
             )
         }
-        AlertDialog.Builder(this)
+
+        var dialog: AlertDialog? = null
+
+        val listView = ListView(this)
+        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, options)
+        listView.setOnItemClickListener { _, _, which, _ ->
+            dialog?.dismiss()
+            val forceStrip = if (isDv) (which == 1) else false
+            val convertDv8 = if (isDv) (which == 2) else false
+            val genPreviews = cbPreviews.isChecked && storyboardAvailable
+            playFile(
+                entry,
+                forceStripDv = forceStrip,
+                convertDv8 = convertDv8,
+                generatePreviews = genPreviews
+            )
+        }
+        container.addView(listView)
+
+        dialog = AlertDialog.Builder(this)
             .setTitle(entry.name)
-            .setItems(options) { dialog, which ->
-                dialog.dismiss()
-                val genPreviews = if (isDv) (which == 2 || which == 3) else (which == 1)
-                if (genPreviews && !storyboardAvailable) {
-                    android.widget.Toast.makeText(this, "ffmpeg is not installed on the server; playing normally.", android.widget.Toast.LENGTH_LONG).show()
-                }
-                val forceStrip = if (isDv) (which == 1 || which == 3) else false
-                playFile(entry, forceStripDv = forceStrip, generatePreviews = genPreviews && storyboardAvailable)
-            }
-            .show()
+            .setView(container)
+            .create()
+        dialog.show()
     }
 
-    private fun playFileWithStripDV(selected: ServerApi.FolderEntry) {
+    private fun playFile(
+        selected: ServerApi.FolderEntry,
+        forceStripDv: Boolean = false,
+        convertDv8: Boolean = false,
+        generatePreviews: Boolean = false
+    ) {
         val files = entries.filter { !it.isDir }
         val index = files.indexOfFirst { it.name == selected.name }.coerceAtLeast(0)
         val urls = ArrayList<String>(files.size)
@@ -235,7 +264,9 @@ class BrowserActivity : Activity() {
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_TITLES, titles)
             putStringArrayListExtra(PlayerActivity.EXTRA_PL_INFO_PATHS, infoPaths)
             putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
-            putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+            if (forceStripDv) putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+            if (convertDv8) putExtra(PlayerActivity.EXTRA_CONVERT_DV8, true)
+            if (generatePreviews) putExtra(PlayerActivity.EXTRA_GENERATE_PREVIEWS, true)
             currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })
     }

@@ -32,6 +32,11 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.DoviP7ToP8Transformer
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.DoviStrategy
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.Hdr10PlusStrategy
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.TransformStrategy
+
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 
 /**
@@ -90,11 +95,16 @@ object PlayerFactory {
         return stripDV || forceStripDV
     }
 
-    fun mapFormat(format: Format, fallbackToHdr10: Boolean): Format {
+    fun mapFormat(format: Format, fallbackToHdr10: Boolean, convertDv8: Boolean = false): Format {
         if (fallbackToHdr10 && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
             return format.buildUpon()
                 .setSampleMimeType(MimeTypes.VIDEO_H265)
                 .setCodecs(null) // Clear DV specific codecs string
+                .build()
+        }
+        if (convertDv8 && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
+            return format.buildUpon()
+                .setCodecs("dvhe.08.06")
                 .build()
         }
         return format
@@ -117,15 +127,13 @@ object PlayerFactory {
     }
 
     @OptIn(UnstableApi::class)
-    fun create(context: Context, fallbackToHdr10: Boolean = false): ExoPlayer {
+    fun create(context: Context, fallbackToHdr10: Boolean = false, convertDv8: Boolean = false): ExoPlayer {
         if (fallbackToHdr10) {
             Log.i("PlayerFactory", "Dolby Vision fallback active: forcing fallback to standard HEVC (HDR10)")
+        } else if (convertDv8) {
+            Log.i("PlayerFactory", "Dolby Vision Profile 7 to Profile 8.1 conversion active via libdovi JNI")
         }
 
-        // EXTENSION_RENDERER_MODE_OFF: no software decoders that could outrank
-        // the passthrough path. Decoder fallback stays on so a broken decoder
-        // doesn't kill playback outright. The audio sink is wrapped so DTS-HD
-        // tracks bitstream their DTS core when the sink lacks ENCODING_DTS_HD.
         val renderersFactory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context,
@@ -154,7 +162,8 @@ object PlayerFactory {
                         eventHandler,
                         eventListener,
                         50, // MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY
-                        fallbackToHdr10
+                        fallbackToHdr10,
+                        convertDv8
                     )
                 )
             }
@@ -183,10 +192,6 @@ object PlayerFactory {
             .build()
     }
 
-    // Custom renderer that intercepts Dolby Vision Profile 7 tracks and reports them as
-    // standard HEVC (H.265) to both the codec selector and the MediaCodec configuration.
-    // This forces fallback to standard HEVC decoding (HDR10 base layer) instead of using the
-    // hardware Dolby Vision decoder which fails/black-screens on dual-layer Profile 7 FEL files.
     @OptIn(UnstableApi::class)
     private class DolbyVisionFallbackVideoRenderer(
         context: Context,
@@ -196,7 +201,8 @@ object PlayerFactory {
         eventHandler: Handler,
         eventListener: VideoRendererEventListener,
         maxDroppedFramesToNotify: Int,
-        private val fallbackToHdr10: Boolean
+        private val fallbackToHdr10: Boolean,
+        private val convertDv8: Boolean
     ) : MediaCodecVideoRenderer(
         context,
         mediaCodecSelector,
@@ -208,7 +214,7 @@ object PlayerFactory {
     ) {
 
         private fun mapFormat(format: Format): Format {
-            return PlayerFactory.mapFormat(format, fallbackToHdr10)
+            return PlayerFactory.mapFormat(format, fallbackToHdr10, convertDv8)
         }
 
         override fun getDecoderInfos(
@@ -238,6 +244,8 @@ object PlayerFactory {
             val data = buffer.data
             if (fallbackToHdr10 && data != null) {
                 stripDolbyVisionNalUnits(buffer)
+            } else if (convertDv8 && data != null) {
+                convertDolbyVisionP7ToP8(buffer)
             }
             super.onQueueInputBuffer(buffer)
         }
@@ -247,8 +255,105 @@ object PlayerFactory {
             PlayerFactory.stripDolbyVisionNalUnits(data)
         }
 
+        private fun convertDolbyVisionP7ToP8(buffer: DecoderInputBuffer) {
+            val data = buffer.data ?: return
+            PlayerFactory.convertDolbyVisionP7ToP8(data)
+        }
+
         private fun describeFormat(format: Format): String {
             return "mime=${format.sampleMimeType} codecs=${format.codecs} w=${format.width} h=${format.height} color=${format.colorInfo}"
+        }
+    }
+
+    private val doviTransformer by lazy { DoviP7ToP8Transformer() }
+
+    fun convertDolbyVisionP7ToP8(data: ByteBuffer) {
+        if (data.remaining() < 5) return
+
+        val originalPosition = data.position()
+        val limit = data.limit()
+
+        val cleanData = ByteBuffer.allocate(data.remaining() * 2)
+        cleanData.order(data.order())
+
+        var index = originalPosition
+        var modified = false
+
+        while (index < limit) {
+            val startCodeOffset = findStartCode(data, index, limit)
+            if (startCodeOffset == -1) {
+                val dup = data.duplicate()
+                dup.position(index)
+                dup.limit(limit)
+                cleanData.put(dup)
+                break
+            }
+
+            if (startCodeOffset > index) {
+                val dup = data.duplicate()
+                dup.position(index)
+                dup.limit(startCodeOffset)
+                cleanData.put(dup)
+            }
+
+            val startCodeLength = if (startCodeOffset + 3 < limit &&
+                data.get(startCodeOffset) == 0.toByte() &&
+                data.get(startCodeOffset + 1) == 0.toByte() &&
+                data.get(startCodeOffset + 2) == 0.toByte() &&
+                data.get(startCodeOffset + 3) == 1.toByte()) 4 else 3
+
+            val nalStart = startCodeOffset + startCodeLength
+            if (nalStart >= limit) {
+                val dup = data.duplicate()
+                dup.position(startCodeOffset)
+                dup.limit(limit)
+                cleanData.put(dup)
+                break
+            }
+
+            val nextStartCodeOffset = findStartCode(data, nalStart, limit)
+            val nalEnd = if (nextStartCodeOffset != -1) nextStartCodeOffset else limit
+
+            val nalHeader0 = data.get(nalStart)
+            val nalType = (nalHeader0.toInt() and 0x7E) ushr 1
+
+            val nalLength = nalEnd - nalStart
+            val nalBytes = ByteArray(nalLength)
+            val dup = data.duplicate()
+            dup.position(nalStart)
+            dup.get(nalBytes)
+
+            val transformedBytes = try {
+                doviTransformer.transformNalu(nalType, nalBytes)
+            } catch (_: Exception) {
+                nalBytes
+            }
+
+            if (transformedBytes != null && transformedBytes.isNotEmpty()) {
+                if (startCodeLength == 4) {
+                    cleanData.put(0.toByte())
+                }
+                cleanData.put(0.toByte())
+                cleanData.put(0.toByte())
+                cleanData.put(1.toByte())
+                cleanData.put(transformedBytes)
+                if (transformedBytes !== nalBytes) {
+                    modified = true
+                }
+            } else {
+                modified = true
+            }
+
+            index = nalEnd
+        }
+
+        if (modified) {
+            cleanData.flip()
+            data.clear()
+            data.put(cleanData)
+            data.flip()
+        } else {
+            data.position(originalPosition)
         }
     }
 

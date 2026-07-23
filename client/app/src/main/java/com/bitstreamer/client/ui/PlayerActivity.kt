@@ -102,6 +102,7 @@ class PlayerActivity : Activity() {
     private var srcDvProfile = -1
     private var srcStripDV = false
     private var forceStripDV = false
+    private var convertDv8 = false
     private var lastTotalBytes = 0L
     private var lastTimestampMs = 0L
     private var liveMbps = 0.0
@@ -280,6 +281,7 @@ class PlayerActivity : Activity() {
         playlistInfoPaths = intent.getStringArrayListExtra(EXTRA_PL_INFO_PATHS)
         playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
         forceStripDV = intent.getBooleanExtra(EXTRA_FORCE_STRIP_DV, false)
+        convertDv8 = intent.getBooleanExtra(EXTRA_CONVERT_DV8, false)
         generatePreviewsOnLaunch = intent.getBooleanExtra(EXTRA_GENERATE_PREVIEWS, false)
         if (intent.hasExtra(EXTRA_ROOT_INDEX)) {
             rootIndex = intent.getIntExtra(EXTRA_ROOT_INDEX, 0)
@@ -365,9 +367,9 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV convertDv8=$convertDv8")
         val fallbackToHdr10 = PlayerFactory.shouldFallbackToHdr10(srcDvProfile, srcStripDV, forceStripDV)
-        val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
+        val exoPlayer = PlayerFactory.create(this, fallbackToHdr10 = fallbackToHdr10, convertDv8 = convertDv8)
         player = exoPlayer
         playerView.player = if (isImage(currentTitle)) {
             exoPlayer
@@ -552,6 +554,7 @@ class PlayerActivity : Activity() {
             putExtra(EXTRA_INFO_PATH, playlistInfoPaths?.getOrNull(index) ?: "")
             putExtra(EXTRA_FOLDER_MODE, true)
             if (forceStripDV) putExtra(EXTRA_FORCE_STRIP_DV, true)
+            if (convertDv8) putExtra(EXTRA_CONVERT_DV8, true)
             rootIndex?.let { putExtra(EXTRA_ROOT_INDEX, it) }
             putStringArrayListExtra(EXTRA_PL_URLS, playlistUrls)
             putStringArrayListExtra(EXTRA_PL_TITLES, playlistTitles)
@@ -1275,6 +1278,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_FOLDER_MODE = "folderMode"
         const val EXTRA_INFO_PATH = "infoPath"
         const val EXTRA_FORCE_STRIP_DV = "forceStripDV"
+        const val EXTRA_CONVERT_DV8 = "convertDv8"
         const val EXTRA_GENERATE_PREVIEWS = "generatePreviews"
         const val EXTRA_PL_URLS = "playlistUrls"
         const val EXTRA_PL_TITLES = "playlistTitles"
