@@ -32,6 +32,11 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 
+import com.suyashbelekar.exoplayerhdrutils.exoplayer.source.HdrCompatMediaSourceFactory
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.DoviStrategy
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.Hdr10PlusStrategy
+import com.suyashbelekar.exoplayerhdrutils.video.transformers.TransformStrategy
+
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 
 /**
@@ -117,9 +122,11 @@ object PlayerFactory {
     }
 
     @OptIn(UnstableApi::class)
-    fun create(context: Context, fallbackToHdr10: Boolean = false): ExoPlayer {
+    fun create(context: Context, fallbackToHdr10: Boolean = false, convertDv8: Boolean = false): ExoPlayer {
         if (fallbackToHdr10) {
             Log.i("PlayerFactory", "Dolby Vision fallback active: forcing fallback to standard HEVC (HDR10)")
+        } else if (convertDv8) {
+            Log.i("PlayerFactory", "Dolby Vision Profile 7 to Profile 8.1 conversion active via ExoplayerHdrUtils HdrCompatMediaSourceFactory")
         }
 
         // EXTENSION_RENDERER_MODE_OFF: no software decoders that could outrank
@@ -171,8 +178,19 @@ object PlayerFactory {
         val listener = getTransferListener(context)
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context)
             .setTransferListener(listener)
-        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+        val defaultMediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
+
+        val mediaSourceFactory = if (convertDv8) {
+            val transformStrategy = TransformStrategy(
+                doviP7Fel = DoviStrategy.CONVERT_TO_P8,
+                doviP7Mel = DoviStrategy.CONVERT_TO_P8,
+                doviHdr10Plus = Hdr10PlusStrategy.DISCARD
+            )
+            HdrCompatMediaSourceFactory(defaultMediaSourceFactory, transformStrategy)
+        } else {
+            defaultMediaSourceFactory
+        }
 
         return ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -183,10 +201,6 @@ object PlayerFactory {
             .build()
     }
 
-    // Custom renderer that intercepts Dolby Vision Profile 7 tracks and reports them as
-    // standard HEVC (H.265) to both the codec selector and the MediaCodec configuration.
-    // This forces fallback to standard HEVC decoding (HDR10 base layer) instead of using the
-    // hardware Dolby Vision decoder which fails/black-screens on dual-layer Profile 7 FEL files.
     @OptIn(UnstableApi::class)
     private class DolbyVisionFallbackVideoRenderer(
         context: Context,
