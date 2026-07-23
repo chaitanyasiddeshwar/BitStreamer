@@ -105,11 +105,3 @@ func TestProbeDVSubtype(t *testing.T) {
 		t.Errorf("probeDVSubtype large NAL63 = %q, want FEL", got)
 	}
 }
-
-func TestInspectTitanic(t *testing.T) {
-	titanic := `D:\MediaServer\Titanic.1997.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR\Titanic.1997.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR.mkv`
-	if _, err := os.Stat(titanic); err == nil {
-		sub := probeDVSubtype(titanic)
-		t.Logf("Titanic probeDVSubtype = %s", sub)
-	}
-}

@@ -124,6 +124,14 @@ func probeMedia(path string) (mediaProbe, bool) {
 	jsonPath := chapterCachePath(cDir, path)
 
 	if mc := readMediaCache(jsonPath); mc != nil && mc.Probe != nil {
+		if mc.Probe.DvProfile == 7 && mc.Probe.DvSubtype == "" {
+			mc.Probe.DvSubtype = probeDVSubtype(path)
+			updateMediaCache(jsonPath, path, func(m *MediaCache) {
+				if m.Probe != nil {
+					m.Probe.DvSubtype = mc.Probe.DvSubtype
+				}
+			})
+		}
 		p := mediaProbe{
 			isHDR:              mc.Probe.IsHDR,
 			hdr10plus:          mc.Probe.Hdr10plus,

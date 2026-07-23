@@ -1124,12 +1124,10 @@ class PlayerActivity : Activity() {
         row("state", playbackStateName(p?.playbackState) + if (p?.isPlaying == true) " (playing)" else " (paused)")
         if (p != null && p.duration > 0) {
             row("position", "${formatTime(p.currentPosition)} / ${formatTime(p.duration)}  ${p.bufferedPercentage}% buf")
-            val estBps = PlayerFactory.getBandwidthMeter(this).bitrateEstimate
-            val estMbps = estBps.toDouble() / 1_000_000.0
             val bwString = if (liveMbps > 0.05) {
-                String.format("%.2f Mbps (Est. %.2f)", liveMbps, estMbps)
+                String.format("%.2f Mbps", liveMbps)
             } else if (p.isPlaying && p.bufferedPercentage >= 95) {
-                String.format("Buffered (Est. %.2f Mbps)", estMbps)
+                "Buffered"
             } else {
                 String.format("%.2f Mbps", liveMbps)
             }
