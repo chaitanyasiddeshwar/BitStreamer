@@ -86,9 +86,8 @@ object PlayerFactory {
         return listener
     }
 
-    fun shouldFallbackToHdr10(dvProfile: Int, dvSubtype: String?, stripDV: Boolean, forceStripDV: Boolean): Boolean {
-        if (stripDV || forceStripDV) return true
-        return dvProfile == 7 && dvSubtype.equals("FEL", ignoreCase = true)
+    fun shouldFallbackToHdr10(dvProfile: Int, stripDV: Boolean, forceStripDV: Boolean): Boolean {
+        return stripDV || forceStripDV
     }
 
     fun mapFormat(format: Format, fallbackToHdr10: Boolean): Format {

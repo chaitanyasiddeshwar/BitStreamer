@@ -100,7 +100,6 @@ class PlayerActivity : Activity() {
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
-    private var srcDvSubtype: String? = null
     private var srcStripDV = false
     private var forceStripDV = false
     private var lastTotalBytes = 0L
@@ -307,7 +306,6 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
-                    srcDvSubtype = info?.dvSubtype
                     srcStripDV = forceStripDV || (info?.stripDV ?: false)
                      srcVideoBitrate = info?.videoBitrate ?: 0L
                     srcAudioBitrate = info?.audioBitrate ?: 0L
@@ -367,8 +365,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile dvSubtype=$srcDvSubtype hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
-        val fallbackToHdr10 = PlayerFactory.shouldFallbackToHdr10(srcDvProfile, srcDvSubtype, srcStripDV, forceStripDV)
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
+        val fallbackToHdr10 = PlayerFactory.shouldFallbackToHdr10(srcDvProfile, srcStripDV, forceStripDV)
         val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
         playerView.player = if (isImage(currentTitle)) {
@@ -1139,9 +1137,6 @@ class PlayerActivity : Activity() {
         if (srcVideoProfile.isNotEmpty()) {
             videoCodecValue += " [$srcVideoProfile" + (if (srcVideoLevel.isNotEmpty()) " @ L$srcVideoLevel" else "") + "]"
         }
-        if (!srcDvSubtype.isNullOrEmpty()) {
-            videoCodecValue += " ($srcDvSubtype)"
-        }
         row("codec", videoCodecValue)
         if (v != null && v.width != Format.NO_VALUE) {
             var resValue = "${v.width}x${v.height}"
@@ -1243,10 +1238,7 @@ class PlayerActivity : Activity() {
             }
         )
         if (srcHdr10Plus) parts.add("HDR10+")
-        if (srcDvProfile >= 0) {
-            val dvLabel = if (!srcDvSubtype.isNullOrEmpty()) "DV p$srcDvProfile ($srcDvSubtype)" else "DV p$srcDvProfile"
-            parts.add(dvLabel)
-        }
+        if (srcDvProfile >= 0) parts.add("DV p$srcDvProfile")
         val space = when (srcColorSpace) {
             "bt2020nc", "bt2020c" -> "BT.2020"
             "bt709" -> "BT.709"

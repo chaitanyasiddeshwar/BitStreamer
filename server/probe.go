@@ -31,7 +31,6 @@ type mediaProbe struct {
 	colorTransfer      string
 	colorSpace         string
 	dvProfile          int // -1 if not Dolby Vision
-	dvSubtype          string
 	summary            string
 	videoBitrate       int64
 	audioBitrate       int64
@@ -124,21 +123,12 @@ func probeMedia(path string) (mediaProbe, bool) {
 	jsonPath := chapterCachePath(cDir, path)
 
 	if mc := readMediaCache(jsonPath); mc != nil && mc.Probe != nil {
-		if mc.Probe.DvProfile == 7 && mc.Probe.DvSubtype == "" {
-			mc.Probe.DvSubtype = probeDVSubtype(path)
-			updateMediaCache(jsonPath, path, func(m *MediaCache) {
-				if m.Probe != nil {
-					m.Probe.DvSubtype = mc.Probe.DvSubtype
-				}
-			})
-		}
 		p := mediaProbe{
 			isHDR:              mc.Probe.IsHDR,
 			hdr10plus:          mc.Probe.Hdr10plus,
 			colorTransfer:      mc.Probe.ColorTransfer,
 			colorSpace:         mc.Probe.ColorSpace,
 			dvProfile:          mc.Probe.DvProfile,
-			dvSubtype:          mc.Probe.DvSubtype,
 			summary:            mc.Probe.Summary,
 			videoBitrate:       mc.Probe.VideoBitrate,
 			audioBitrate:       mc.Probe.AudioBitrate,
@@ -164,7 +154,6 @@ func probeMedia(path string) (mediaProbe, bool) {
 				ColorTransfer:      p.colorTransfer,
 				ColorSpace:         p.colorSpace,
 				DvProfile:          p.dvProfile,
-				DvSubtype:          p.dvSubtype,
 				Summary:            p.summary,
 				VideoBitrate:       p.videoBitrate,
 				AudioBitrate:       p.audioBitrate,
@@ -302,18 +291,12 @@ func probeMediaDirect(path string) (mediaProbe, bool) {
 		primaryAudioBitrate = audioTracks[0].Bitrate
 	}
 
-	dvSubtype := ""
-	if dv == 7 {
-		dvSubtype = probeDVSubtype(path)
-	}
-
 	p := mediaProbe{
 		isHDR:              isHDR,
 		hdr10plus:          hdr10plus,
 		colorTransfer:      videoStream.ColorTransfer,
 		colorSpace:         videoStream.ColorSpace,
 		dvProfile:          dv,
-		dvSubtype:          dvSubtype,
 		videoBitrate:       videoStream.BitRate,
 		audioBitrate:       primaryAudioBitrate,
 		videoCodec:         videoStream.CodecName,
@@ -327,82 +310,11 @@ func probeMediaDirect(path string) (mediaProbe, bool) {
 	}
 	dvStr := "none"
 	if dv >= 0 {
-		if dvSubtype != "" {
-			dvStr = fmt.Sprintf("profile %d (%s)", dv, dvSubtype)
-		} else {
-			dvStr = fmt.Sprintf("profile %d", dv)
-		}
+		dvStr = fmt.Sprintf("profile %d", dv)
 	}
 	p.summary = fmt.Sprintf("HDR=%v (transfer=%s, space=%s, dolby-vision=%s, hdr10+=%v, v-rate=%d, a-rate=%d)",
 		isHDR, orNA(videoStream.ColorTransfer), orNA(videoStream.ColorSpace), dvStr, hdr10plus, videoStream.BitRate, primaryAudioBitrate)
 	return p, true
-}
-
-// probeDVSubtype inspects a Dolby Vision Profile 7 stream to distinguish
-// Minimum Enhancement Layer ("MEL") from Full Enhancement Layer ("FEL").
-func probeDVSubtype(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return "MEL"
-	}
-	defer f.Close()
-
-	buf := make([]byte, 8*1024*1024)
-	n, err := f.Read(buf)
-	if err != nil || n < 100 {
-		return "MEL"
-	}
-	data := buf[:n]
-
-	var nal63Sizes []int
-	i := 0
-	for i < len(data)-4 {
-		if data[i] == 0 && data[i+1] == 0 {
-			startCodeLen := 0
-			if data[i+2] == 1 {
-				startCodeLen = 3
-			} else if i+3 < len(data) && data[i+2] == 0 && data[i+3] == 1 {
-				startCodeLen = 4
-			}
-			if startCodeLen > 0 {
-				nalStart := i + startCodeLen
-				if nalStart < len(data) {
-					nalHeader0 := data[nalStart]
-					nalType := (int(nalHeader0) & 0x7E) >> 1
-					if nalType == 63 {
-						nextStart := len(data)
-						for j := nalStart + 2; j < len(data)-3; j++ {
-							if data[j] == 0 && data[j+1] == 0 && (data[j+2] == 1 || (data[j+2] == 0 && data[j+3] == 1)) {
-								nextStart = j
-								break
-							}
-						}
-						size := nextStart - nalStart
-						nal63Sizes = append(nal63Sizes, size)
-						if len(nal63Sizes) >= 30 {
-							break
-						}
-					}
-				}
-			}
-		}
-		i++
-	}
-
-	if len(nal63Sizes) == 0 {
-		return "MEL"
-	}
-
-	total := 0
-	for _, sz := range nal63Sizes {
-		total += sz
-	}
-	avg := total / len(nal63Sizes)
-
-	if avg > 400 {
-		return "FEL"
-	}
-	return "MEL"
 }
 
 // probeHDR10Plus reports whether the stream carries HDR10+ dynamic metadata

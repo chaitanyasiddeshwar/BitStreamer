@@ -490,7 +490,6 @@ func (a *app) videoInfo(p mediaProbe) map[string]any {
 		"transfer":         p.colorTransfer,
 		"colorSpace":       p.colorSpace,
 		"dvProfile":        p.dvProfile,
-		"dvSubtype":        p.dvSubtype,
 		"videoBitrate":     p.videoBitrate,
 		"audioBitrate":     p.audioBitrate,
 		"codec":            p.videoCodec,

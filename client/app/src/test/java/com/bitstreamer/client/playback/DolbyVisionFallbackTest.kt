@@ -12,35 +12,30 @@ import java.nio.ByteBuffer
 class DolbyVisionFallbackTest {
 
     @Test
-    fun testShouldFallbackToHdr10_OnlyDvProfile7FELorExplicitStrip() {
+    fun testShouldFallbackToHdr10_DefaultNativeDVNoFallback() {
         // SDR / HDR10 / HDR10+ / HLG -> No Fallback
-        assertFalse(PlayerFactory.shouldFallbackToHdr10(-1, null, stripDV = false, forceStripDV = false))
+        assertFalse(PlayerFactory.shouldFallbackToHdr10(-1, stripDV = false, forceStripDV = false))
 
         // DV Profile 5 -> No Fallback (Native DV)
-        assertFalse(PlayerFactory.shouldFallbackToHdr10(5, null, stripDV = false, forceStripDV = false))
+        assertFalse(PlayerFactory.shouldFallbackToHdr10(5, stripDV = false, forceStripDV = false))
 
         // DV Profile 8 -> No Fallback (Native DV)
-        assertFalse(PlayerFactory.shouldFallbackToHdr10(8, null, stripDV = false, forceStripDV = false))
+        assertFalse(PlayerFactory.shouldFallbackToHdr10(8, stripDV = false, forceStripDV = false))
 
-        // DV Profile 7 MEL -> No Fallback (Native DV, no NAL stripping!)
-        assertFalse(PlayerFactory.shouldFallbackToHdr10(7, "MEL", stripDV = false, forceStripDV = false))
-
-        // DV Profile 7 FEL -> Triggers Fallback & NAL Stripping
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, "FEL", stripDV = false, forceStripDV = false))
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, "fel", stripDV = false, forceStripDV = false))
+        // DV Profile 7 -> No Fallback (Native DV by default)
+        assertFalse(PlayerFactory.shouldFallbackToHdr10(7, stripDV = false, forceStripDV = false))
     }
 
     @Test
     fun testShouldFallbackToHdr10_ExplicitStripDVTriggersFallbackForAll() {
-        // Explicit stripDV flag forces fallback across all profiles
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, "MEL", stripDV = true, forceStripDV = false))
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, "FEL", stripDV = true, forceStripDV = false))
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(5, null, stripDV = true, forceStripDV = false))
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(8, null, stripDV = true, forceStripDV = false))
+        // Explicit stripDV flag forces fallback across all profiles (including Profile 7)
+        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, stripDV = true, forceStripDV = false))
+        assertTrue(PlayerFactory.shouldFallbackToHdr10(5, stripDV = true, forceStripDV = false))
+        assertTrue(PlayerFactory.shouldFallbackToHdr10(8, stripDV = true, forceStripDV = false))
 
         // Explicit forceStripDV flag
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, "MEL", stripDV = false, forceStripDV = true))
-        assertTrue(PlayerFactory.shouldFallbackToHdr10(5, null, stripDV = false, forceStripDV = true))
+        assertTrue(PlayerFactory.shouldFallbackToHdr10(7, stripDV = false, forceStripDV = true))
+        assertTrue(PlayerFactory.shouldFallbackToHdr10(5, stripDV = false, forceStripDV = true))
     }
 
     @Test
