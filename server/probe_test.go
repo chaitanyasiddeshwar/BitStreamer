@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,5 +64,52 @@ func TestExtractBitrate(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("extractBitrate(%q, %v) = %d, want %d", tc.bitRate, tc.tags, got, tc.want)
 		}
+	}
+}
+
+func TestProbeDVSubtype(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Missing file -> defaults to MEL
+	if got := probeDVSubtype(filepath.Join(tmpDir, "nonexistent.mkv")); got != "MEL" {
+		t.Errorf("probeDVSubtype non-existent = %q, want MEL", got)
+	}
+
+	// File with small NAL 63 (size < 400 bytes) -> MEL
+	melPath := filepath.Join(tmpDir, "mel.mkv")
+	var melData []byte
+	// 5 samples of NAL 63 with payload size 50
+	for i := 0; i < 5; i++ {
+		melData = append(melData, 0, 0, 0, 1, 0x7E) // NAL 63 header
+		melData = append(melData, make([]byte, 50)...)
+	}
+	if err := os.WriteFile(melPath, melData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := probeDVSubtype(melPath); got != "MEL" {
+		t.Errorf("probeDVSubtype small NAL63 = %q, want MEL", got)
+	}
+
+	// File with large NAL 63 (size > 400 bytes) -> FEL
+	felPath := filepath.Join(tmpDir, "fel.mkv")
+	var felData []byte
+	// 5 samples of NAL 63 with payload size 600
+	for i := 0; i < 5; i++ {
+		felData = append(felData, 0, 0, 0, 1, 0x7E) // NAL 63 header
+		felData = append(felData, make([]byte, 600)...)
+	}
+	if err := os.WriteFile(felPath, felData, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := probeDVSubtype(felPath); got != "FEL" {
+		t.Errorf("probeDVSubtype large NAL63 = %q, want FEL", got)
+	}
+}
+
+func TestInspectTitanic(t *testing.T) {
+	titanic := `D:\MediaServer\Titanic.1997.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR\Titanic.1997.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.REMUX-FraMeSToR.mkv`
+	if _, err := os.Stat(titanic); err == nil {
+		sub := probeDVSubtype(titanic)
+		t.Logf("Titanic probeDVSubtype = %s", sub)
 	}
 }

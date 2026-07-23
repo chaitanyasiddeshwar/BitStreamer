@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-extractor:$media3") // DtsUtil for core extraction
+    testImplementation("junit:junit:4.13.2")
 }
 
 // After an assemble, copy the built APK to the shared repo-root dist/ folder as

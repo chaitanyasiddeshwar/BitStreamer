@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -99,8 +100,12 @@ class PlayerActivity : Activity() {
     private var srcTransfer = ""
     private var srcColorSpace = ""
     private var srcDvProfile = -1
+    private var srcDvSubtype: String? = null
     private var srcStripDV = false
     private var forceStripDV = false
+    private var lastTotalBytes = 0L
+    private var lastTimestampMs = 0L
+    private var liveMbps = 0.0
      private var srcVideoBitrate = 0L
     private var srcAudioBitrate = 0L
     private var srcVideoCodec = ""
@@ -302,6 +307,7 @@ class PlayerActivity : Activity() {
                     srcTransfer = info?.videoTransfer ?: ""
                     srcColorSpace = info?.videoColorSpace ?: ""
                     srcDvProfile = info?.dvProfile ?: -1
+                    srcDvSubtype = info?.dvSubtype
                     srcStripDV = forceStripDV || (info?.stripDV ?: false)
                      srcVideoBitrate = info?.videoBitrate ?: 0L
                     srcAudioBitrate = info?.audioBitrate ?: 0L
@@ -361,8 +367,8 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
-        val fallbackToHdr10 = (srcDvProfile == 7) || srcStripDV
+        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile dvSubtype=$srcDvSubtype hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV")
+        val fallbackToHdr10 = PlayerFactory.shouldFallbackToHdr10(srcDvProfile, srcDvSubtype, srcStripDV, forceStripDV)
         val exoPlayer = PlayerFactory.create(this, fallbackToHdr10)
         player = exoPlayer
         playerView.player = if (isImage(currentTitle)) {
@@ -1097,19 +1103,46 @@ class PlayerActivity : Activity() {
             if (value.isNotEmpty()) sb.append(name.padEnd(11)).append(value).append('\n')
         }
 
+        val nowMs = SystemClock.elapsedRealtime()
+        val totalBytes = PlayerFactory.getTotalBytesTransferred()
+        if (lastTimestampMs > 0 && nowMs > lastTimestampMs) {
+            val deltaBytes = totalBytes - lastTotalBytes
+            val deltaTimeSec = (nowMs - lastTimestampMs) / 1000.0
+            if (deltaTimeSec > 0 && deltaBytes >= 0) {
+                val currentSpeedMbps = (deltaBytes * 8.0) / (deltaTimeSec * 1_000_000.0)
+                liveMbps = if (deltaBytes > 0) {
+                    if (liveMbps == 0.0) currentSpeedMbps else (liveMbps * 0.3 + currentSpeedMbps * 0.7)
+                } else {
+                    0.0
+                }
+            }
+        }
+        lastTotalBytes = totalBytes
+        lastTimestampMs = nowMs
+
         row("file", intent.getStringExtra(EXTRA_TITLE) ?: "")
         row("state", playbackStateName(p?.playbackState) + if (p?.isPlaying == true) " (playing)" else " (paused)")
         if (p != null && p.duration > 0) {
             row("position", "${formatTime(p.currentPosition)} / ${formatTime(p.duration)}  ${p.bufferedPercentage}% buf")
-            val bps = PlayerFactory.getBandwidthMeter(this).bitrateEstimate
-            val mbps = bps.toDouble() / 1_000_000.0
-            row("bandwidth", String.format("%.2f Mbps", mbps))
+            val estBps = PlayerFactory.getBandwidthMeter(this).bitrateEstimate
+            val estMbps = estBps.toDouble() / 1_000_000.0
+            val bwString = if (liveMbps > 0.05) {
+                String.format("%.2f Mbps (Est. %.2f)", liveMbps, estMbps)
+            } else if (p.isPlaying && p.bufferedPercentage >= 95) {
+                String.format("Buffered (Est. %.2f Mbps)", estMbps)
+            } else {
+                String.format("%.2f Mbps", liveMbps)
+            }
+            row("bandwidth", bwString)
         }
 
         sb.append("— video —\n")
         var videoCodecValue = codecStr(v)
         if (srcVideoProfile.isNotEmpty()) {
             videoCodecValue += " [$srcVideoProfile" + (if (srcVideoLevel.isNotEmpty()) " @ L$srcVideoLevel" else "") + "]"
+        }
+        if (!srcDvSubtype.isNullOrEmpty()) {
+            videoCodecValue += " ($srcDvSubtype)"
         }
         row("codec", videoCodecValue)
         if (v != null && v.width != Format.NO_VALUE) {
@@ -1212,7 +1245,10 @@ class PlayerActivity : Activity() {
             }
         )
         if (srcHdr10Plus) parts.add("HDR10+")
-        if (srcDvProfile >= 0) parts.add("DV p$srcDvProfile")
+        if (srcDvProfile >= 0) {
+            val dvLabel = if (!srcDvSubtype.isNullOrEmpty()) "DV p$srcDvProfile ($srcDvSubtype)" else "DV p$srcDvProfile"
+            parts.add(dvLabel)
+        }
         val space = when (srcColorSpace) {
             "bt2020nc", "bt2020c" -> "BT.2020"
             "bt709" -> "BT.709"

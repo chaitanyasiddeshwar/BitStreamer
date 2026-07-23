@@ -57,6 +57,7 @@ type MediaProbeCache struct {
 	ColorTransfer      string            `json:"colorTransfer,omitempty"`
 	ColorSpace         string            `json:"colorSpace,omitempty"`
 	DvProfile          int               `json:"dvProfile"`
+	DvSubtype          string            `json:"dvSubtype,omitempty"`
 	Summary            string            `json:"summary,omitempty"`
 	VideoBitrate       int64             `json:"videoBitrate,omitempty"`
 	AudioBitrate       int64             `json:"audioBitrate,omitempty"`
