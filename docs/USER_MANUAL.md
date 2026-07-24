@@ -55,8 +55,8 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 - `--interval 30`: Set the scrubbing-preview interval in seconds (default: 30, automatically reduces to 10 for videos under 10 minutes).
 - `-stripdv`: Forces client-side Annex B stripping of Dolby Vision metadata to fallback to HDR10 (only applies to Profile 7 files).
 - `-skip-previews`: Skips generating the storyboard seek-bar preview sprites at startup.
-- `--no-caching`: Disables persistent disk caching of metadata and thumbnails in `cache/`.
-- `--keep-cache`: Legacy option to preserve thumbnail and preview cache when stopping the server.
+- `--no-caching`: Disables persistent disk caching of metadata and thumbnails in `cache/` (chapter discovery still works).
+- `--version`: Print the server version and exit.
 
 ### HDR & Dolby Vision Playback Behavior
 
@@ -101,20 +101,21 @@ If you have `adb` installed on your PC and ADB Debugging enabled on your Fire TV
 2. The app will search for servers on the local network. Select the found server.
 3. In Multi-Folder mode, select your desired root folder from the Root Selection screen.
 4. If the server is not found automatically, enter your PC's IP address manually in the input box at the bottom.
+5. **Resume:** When you re-open a video you previously watched partway, BitStreamer prompts to **Resume** from where you left off or start over. Positions are stored per file on the server (`resume.json`) and cleared automatically once you finish a title (≥ 90%).
 
 ### Remote Control Mapping
 * **List Navigation Mode:**
   * **Center / OK**: Enter directory, select root, or start file playback.
   * **Back**: Go back up one directory level (retains selection memory).
-  * **Menu (≡)**: Open context menu (`Play Normally`, `Strip DV and Play`, `Convert to DV8 and Play`, `Generate Seekbar Previews`).
+  * **Menu (≡)**: Open the file's context menu. Dolby Vision files offer `Play Normally`, `Strip DV and Play`, and — in folder mode — `Convert to DV8 and Play`; non-Dolby-Vision files just offer `Play Normally`. In folder mode a `Generate Seekbar Previews` checkbox also appears when previews are available.
 * **Video Playback Mode:**
   * **Center / Play-Pause Button**: Play or pause the video.
-  * **D-pad Left / Right**: Jump backwards/forwards by one preview interval (default: 30s) and show the scrubbing preview frame.
+  * **D-pad Left / Right**: Jump backwards/forwards by one preview interval (default 30s, automatically smaller for short videos) and show the scrubbing preview frame.
   * **Rewind / Fast Forward Buttons**: Jump to the previous or next chapter directly (falls back to standard seek if no chapters).
   * **D-pad Up**: Focus and display the seek bar.
   * **D-pad Down**: Open the options menu (Audio, Subtitles, Chapters, Stats).
   * **Previews Button (Film Strip Icon)**: Trigger on-demand seek-bar preview generation with real-time progress bar UI.
-  * **Menu Button**: Toggle the **Stats for Nerds** overlay (including dynamic real-time bandwidth).
+  * **Menu Button**: Toggle the **Stats for Nerds** overlay — live bandwidth, video/audio codecs and bitrate, resolution, HDR/colour, the active decoder, and the Dolby Vision conversion in effect (e.g. `dv7 → dv8`, `dv7 → hdr10`, or `Native DV`).
   * **Back Button**: Hide controls or exit playback (prevented during preview generation).
 * **Image Playback Mode:**
   * Plays each image for **5 seconds** and auto-advances.
@@ -174,4 +175,5 @@ To enable visual chapter markers and Netflix-style scrubbing previews:
 
 If you encounter issues during playback, check these logs located next to the server executable on your PC:
 - **`client-logs.txt`**: Contains playback logs sent dynamically from the Fire TV client. Use this to verify codec selection and audio track initialization.
+- **`server.log`**: The server's own logs — requests served, the full metadata dump per file, and warnings (e.g. missing `ffmpeg`/`ffprobe`).
 - **`ffmpeg-logs.txt`**: Contains detailed output from background chapter/scrubbing thumbnail generation.
