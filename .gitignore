@@ -3,6 +3,7 @@
 server/bitstreamer
 server/bitstreamer.exe
 server/bitstreamer-*
+server/server.exe
 server/dist/
 server/cache/
 cache/
