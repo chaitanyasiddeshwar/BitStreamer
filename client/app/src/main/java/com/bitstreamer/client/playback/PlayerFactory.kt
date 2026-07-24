@@ -272,80 +272,166 @@ object PlayerFactory {
         val originalPosition = data.position()
         val limit = data.limit()
 
-        val cleanData = ByteBuffer.allocate(data.remaining())
-        cleanData.order(data.order())
+        if (data.hasArray()) {
+            val arr = data.array()
+            val offset = data.arrayOffset()
+            var index = originalPosition
+            var writeIndex = originalPosition
+            var modified = false
 
-        var index = originalPosition
-        var modified = false
-
-        while (index < limit) {
-            val startCodeOffset = findStartCode(data, index, limit)
-            if (startCodeOffset == -1) {
-                val dup = data.duplicate()
-                dup.position(index)
-                dup.limit(limit)
-                cleanData.put(dup)
-                break
-            }
-
-            if (startCodeOffset > index) {
-                val dup = data.duplicate()
-                dup.position(index)
-                dup.limit(startCodeOffset)
-                cleanData.put(dup)
-            }
-
-            val startCodeLength = if (startCodeOffset + 3 < limit &&
-                data.get(startCodeOffset) == 0.toByte() &&
-                data.get(startCodeOffset + 1) == 0.toByte() &&
-                data.get(startCodeOffset + 2) == 0.toByte() &&
-                data.get(startCodeOffset + 3) == 1.toByte()) 4 else 3
-
-            val nalStart = startCodeOffset + startCodeLength
-            if (nalStart >= limit) {
-                val dup = data.duplicate()
-                dup.position(startCodeOffset)
-                dup.limit(limit)
-                cleanData.put(dup)
-                break
-            }
-
-            val nextStartCodeOffset = findStartCode(data, nalStart, limit)
-            val nalEnd = if (nextStartCodeOffset != -1) nextStartCodeOffset else limit
-
-            val nalHeader0 = data.get(nalStart)
-            val nalType = (nalHeader0.toInt() and 0x7E) ushr 1
-
-            if (nalType == 62 || nalType == 63) {
-                modified = true
-            } else {
-                if (startCodeLength == 4) {
-                    cleanData.put(0.toByte())
+            while (index < limit) {
+                val startCodeOffset = findStartCode(arr, offset + index, offset + limit)
+                if (startCodeOffset == -1) {
+                    val remainingLen = limit - index
+                    if (modified && writeIndex < index) {
+                        System.arraycopy(arr, offset + index, arr, offset + writeIndex, remainingLen)
+                    }
+                    writeIndex += remainingLen
+                    break
                 }
-                cleanData.put(0.toByte())
-                cleanData.put(0.toByte())
-                cleanData.put(1.toByte())
 
-                val dup = data.duplicate()
-                dup.position(nalStart)
-                dup.limit(nalEnd)
-                cleanData.put(dup)
+                val relativeStartCode = startCodeOffset - offset
+
+                if (relativeStartCode > index) {
+                    val leadingLen = relativeStartCode - index
+                    if (modified && writeIndex < index) {
+                        System.arraycopy(arr, offset + index, arr, offset + writeIndex, leadingLen)
+                    }
+                    writeIndex += leadingLen
+                    index = relativeStartCode
+                }
+
+                val startCodeLength = if (relativeStartCode + 3 < limit &&
+                    arr[offset + relativeStartCode] == 0.toByte() &&
+                    arr[offset + relativeStartCode + 1] == 0.toByte() &&
+                    arr[offset + relativeStartCode + 2] == 0.toByte() &&
+                    arr[offset + relativeStartCode + 3] == 1.toByte()
+                ) 4 else 3
+
+                val nalStart = relativeStartCode + startCodeLength
+                if (nalStart >= limit) {
+                    val tailLen = limit - relativeStartCode
+                    if (modified && writeIndex < relativeStartCode) {
+                        System.arraycopy(arr, offset + relativeStartCode, arr, offset + writeIndex, tailLen)
+                    }
+                    writeIndex += tailLen
+                    break
+                }
+
+                val nextStartCodeOffset = findStartCode(arr, offset + nalStart, offset + limit)
+                val nalEnd = if (nextStartCodeOffset != -1) nextStartCodeOffset - offset else limit
+
+                val nalHeader0 = arr[offset + nalStart]
+                val nalType = (nalHeader0.toInt() and 0x7E) ushr 1
+
+                if (nalType == 62 || nalType == 63) {
+                    modified = true
+                } else {
+                    val nalLen = nalEnd - relativeStartCode
+                    if (modified && writeIndex < relativeStartCode) {
+                        System.arraycopy(arr, offset + relativeStartCode, arr, offset + writeIndex, nalLen)
+                    }
+                    writeIndex += nalLen
+                }
+
+                index = nalEnd
             }
 
-            index = nalEnd
-        }
-
-        if (modified) {
-            cleanData.flip()
-            data.clear()
-            data.put(cleanData)
-            data.flip()
+            if (modified) {
+                data.position(originalPosition)
+                data.limit(writeIndex)
+            } else {
+                data.position(originalPosition)
+            }
         } else {
-            data.position(originalPosition)
+            // Direct buffer fallback (non-array backed)
+            var index = originalPosition
+            var writeIndex = originalPosition
+            var modified = false
+
+            while (index < limit) {
+                val startCodeOffset = findStartCodeDirect(data, index, limit)
+                if (startCodeOffset == -1) {
+                    val remainingLen = limit - index
+                    if (modified && writeIndex < index) {
+                        copyBufferRange(data, index, limit, writeIndex)
+                    }
+                    writeIndex += remainingLen
+                    break
+                }
+
+                if (startCodeOffset > index) {
+                    val leadingLen = startCodeOffset - index
+                    if (modified && writeIndex < index) {
+                        copyBufferRange(data, index, startCodeOffset, writeIndex)
+                    }
+                    writeIndex += leadingLen
+                    index = startCodeOffset
+                }
+
+                val startCodeLength = if (startCodeOffset + 3 < limit &&
+                    data.get(startCodeOffset) == 0.toByte() &&
+                    data.get(startCodeOffset + 1) == 0.toByte() &&
+                    data.get(startCodeOffset + 2) == 0.toByte() &&
+                    data.get(startCodeOffset + 3) == 1.toByte()
+                ) 4 else 3
+
+                val nalStart = startCodeOffset + startCodeLength
+                if (nalStart >= limit) {
+                    val tailLen = limit - startCodeOffset
+                    if (modified && writeIndex < startCodeOffset) {
+                        copyBufferRange(data, startCodeOffset, limit, writeIndex)
+                    }
+                    writeIndex += tailLen
+                    break
+                }
+
+                val nextStartCodeOffset = findStartCodeDirect(data, nalStart, limit)
+                val nalEnd = if (nextStartCodeOffset != -1) nextStartCodeOffset else limit
+
+                val nalHeader0 = data.get(nalStart)
+                val nalType = (nalHeader0.toInt() and 0x7E) ushr 1
+
+                if (nalType == 62 || nalType == 63) {
+                    modified = true
+                } else {
+                    val nalLen = nalEnd - startCodeOffset
+                    if (modified && writeIndex < startCodeOffset) {
+                        copyBufferRange(data, startCodeOffset, nalEnd, writeIndex)
+                    }
+                    writeIndex += nalLen
+                }
+
+                index = nalEnd
+            }
+
+            if (modified) {
+                data.position(originalPosition)
+                data.limit(writeIndex)
+            } else {
+                data.position(originalPosition)
+            }
         }
     }
 
-    private fun findStartCode(data: ByteBuffer, start: Int, limit: Int): Int {
+    private fun findStartCode(arr: ByteArray, start: Int, limit: Int): Int {
+        var i = start
+        val max = limit - 3
+        while (i <= max) {
+            if (arr[i] == 0.toByte() && arr[i + 1] == 0.toByte()) {
+                if (arr[i + 2] == 1.toByte()) {
+                    return i
+                }
+                if (i + 3 < limit && arr[i + 2] == 0.toByte() && arr[i + 3] == 1.toByte()) {
+                    return i
+                }
+            }
+            i++
+        }
+        return -1
+    }
+
+    private fun findStartCodeDirect(data: ByteBuffer, start: Int, limit: Int): Int {
         var i = start
         val max = limit - 3
         while (i <= max) {
@@ -360,6 +446,12 @@ object PlayerFactory {
             i++
         }
         return -1
+    }
+
+    private fun copyBufferRange(data: ByteBuffer, srcStart: Int, srcEnd: Int, dstStart: Int) {
+        for (i in 0 until (srcEnd - srcStart)) {
+            data.put(dstStart + i, data.get(srcStart + i))
+        }
     }
 
     /**
