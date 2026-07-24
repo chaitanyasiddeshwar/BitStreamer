@@ -83,6 +83,10 @@ func TestStoryboardEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.story.cleanup)
+	// The fixture is a ~30s clip (<10m), so newApp's short-video rule overrides the
+	// requested 5s interval with the 10s default (see TestShortVideoDynamicInterval).
+	// That's what the endpoints must serve, so assert against the effective interval.
+	wantIntervalMs := a.story.intervalMs
 	srv := httptest.NewServer(a.handler())
 	defer srv.Close()
 
@@ -118,8 +122,8 @@ func TestStoryboardEndpoints(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
 		t.Fatal(err)
 	}
-	if m.IntervalMs != 5000 || m.TileCount < 5 || m.SheetCount < 1 || m.TileWidth <= 0 {
-		t.Errorf("unexpected manifest: %+v", m)
+	if m.IntervalMs != wantIntervalMs || m.TileCount < 3 || m.SheetCount < 1 || m.TileWidth <= 0 {
+		t.Errorf("unexpected manifest: %+v (want intervalMs=%d)", m, wantIntervalMs)
 	}
 
 	img, err := http.Get(srv.URL + "/storyboard?sheet=0")

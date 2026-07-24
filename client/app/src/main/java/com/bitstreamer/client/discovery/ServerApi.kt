@@ -45,6 +45,9 @@ class ServerApi(private val baseUrl: String) {
         val chapters: List<Chapter>,
         val thumbnailsAvailable: Boolean,
         val storyboardAvailable: Boolean,
+        // Seek-bar step / preview interval (ms) — smaller for short videos. Present
+        // even when previews haven't been generated yet; 0 if the server omits it.
+        val seekIntervalMs: Long,
         // Authoritative colour info from the server's ffprobe (Media3's client-side
         // colorInfo is unreliable, so we trust the server here).
         val videoHdr: Boolean,
@@ -145,6 +148,7 @@ class ServerApi(private val baseUrl: String) {
                 chapters = chapters,
                 thumbnailsAvailable = json.optBoolean("thumbnails", false),
                 storyboardAvailable = json.optBoolean("storyboard", false),
+                seekIntervalMs = json.optLong("seekIntervalMs", 0L),
                 videoHdr = video?.optBoolean("hdr", false) ?: false,
                 videoHdr10Plus = video?.optBoolean("hdr10plus", false) ?: false,
                 videoTransfer = video?.optString("transfer", "") ?: "",

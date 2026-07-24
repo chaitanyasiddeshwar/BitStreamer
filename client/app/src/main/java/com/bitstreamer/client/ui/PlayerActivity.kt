@@ -79,6 +79,9 @@ class PlayerActivity : Activity() {
     private var storyboard: ServerApi.Storyboard? = null
     private var storyboardLoader: StoryboardLoader? = null
     private var storyboardEnabled = false
+    // Seek-bar D-pad step (ms) from /info — smaller for short videos, and known
+    // even before previews are generated. 0 until /info is read (falls back to 30s).
+    private var srcSeekIntervalMs = 0L
 
     // Folder mode: playing a file from a browsed folder. No resume/chapters/
     // storyboard; RW/FF (and D-pad L/R for images) step to the prev/next file.
@@ -105,6 +108,7 @@ class PlayerActivity : Activity() {
     private var forceStripDV = false
     private var convertDv8 = false
     private var playNative = false
+    private var dvPlan: DvPlan? = null
     private var lastTotalBytes = 0L
     private var lastTimestampMs = 0L
     private var liveMbps = 0.0
@@ -309,6 +313,7 @@ class PlayerActivity : Activity() {
                     hasThumbnails = info?.thumbnailsAvailable ?: false
                     storyboardEnabled = info?.storyboardAvailable ?: false
                     storyboard = sb
+                    srcSeekIntervalMs = info?.seekIntervalMs ?: 0L
                     srcHdr = info?.videoHdr ?: false
                     srcHdr10Plus = info?.videoHdr10Plus ?: false
                     srcMime = info?.mime ?: ""
@@ -389,6 +394,7 @@ class PlayerActivity : Activity() {
         }
         val dvCaps = PlayerFactory.probeDvCaps(this)
         val plan = PlayerFactory.planDv(srcDvProfile, srcHdr10Plus, dvCaps, userOverride)
+        dvPlan = plan
         RemoteLog.d(
             TAG,
             "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV " +
@@ -652,11 +658,16 @@ class PlayerActivity : Activity() {
             btnPreviews?.visibility = View.GONE
         }
 
-        // Seek-bar D-pad step = storyboard interval (default 30s), so each
-        // left/right press lands on the next preview frame — and no more
-        // "jumps several minutes". Applied whether or not previews exist.
+        // Seek-bar D-pad step = preview interval, so each left/right press lands on
+        // the next preview frame — no more "jumps several minutes". The server sends
+        // a smaller interval for short videos via /info (srcSeekIntervalMs), so this
+        // applies even before previews exist; a generated storyboard's manifest
+        // interval (authoritative, matches the actual tiles) wins when present.
+        val stepMs = storyboard?.intervalMs
+            ?: srcSeekIntervalMs.takeIf { it > 0 }
+            ?: 30_000L
         val timeBar = playerView.findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)
-        timeBar?.setKeyTimeIncrement(storyboard?.intervalMs ?: 30_000L)
+        timeBar?.setKeyTimeIncrement(stepMs)
         timeBar?.removeListener(scrubListener)
         timeBar?.addListener(scrubListener) // no-op preview until a loader exists
         when {
@@ -1199,6 +1210,7 @@ class PlayerActivity : Activity() {
             videoCodecValue += " [$srcVideoProfile" + (if (srcVideoLevel.isNotEmpty()) " @ L$srcVideoLevel" else "") + "]"
         }
         row("codec", videoCodecValue)
+        row("conversion", dvConversionStr())
         if (v != null && v.width != Format.NO_VALUE) {
             var resValue = "${v.width}x${v.height}"
             val fps = if (srcVideoRFrameRate.isNotEmpty()) srcVideoRFrameRate else srcVideoAvgFrameRate
@@ -1213,10 +1225,10 @@ class PlayerActivity : Activity() {
         if (v != null && v.frameRate != Format.NO_VALUE.toFloat() && v.frameRate > 0) {
             row("frame rate", String.format("%.3f fps", v.frameRate))
         }
-        row("bitRate", bitrateStr((v?.bitrate ?: Format.NO_VALUE).toLong(), mbps = true))
-        if (srcVideoBitrate > 0) {
-            row("file rate", bitrateStr(srcVideoBitrate, mbps = true))
-        }
+        // One reliable bitrate from the server's ffprobe (/info). ExoPlayer's
+        // Format.bitrate is often NO_VALUE or an unstable running estimate, so we
+        // don't show it — the file's true bitrate is the single source of truth.
+        row("bitRate", bitrateStr(srcVideoBitrate, mbps = true))
         row("color", sourceColorStr())
         row("decoder", videoDecoderName)
         row("dropped", droppedFrames.toString())
@@ -1248,11 +1260,10 @@ class PlayerActivity : Activity() {
         }
         if (chanVal.isNotEmpty()) row("channels", chanVal)
         if (a != null && a.sampleRate != Format.NO_VALUE) row("sample rate", "${a.sampleRate} Hz")
-        row("audio rate", bitrateStr((a?.bitrate ?: Format.NO_VALUE).toLong(), mbps = false))
-        val fileAudioBitrate = srcAudio?.bitrate ?: srcAudioBitrate
-        if (fileAudioBitrate > 0) {
-            row("bitRate", bitrateStr(fileAudioBitrate, mbps = false))
-        }
+        // One reliable bitrate from the server's ffprobe (/info): the selected
+        // track's bitrate, falling back to the file-level audio bitrate.
+        val fileAudioBitrate = (srcAudio?.bitrate ?: 0L).takeIf { it > 0L } ?: srcAudioBitrate
+        row("bitRate", bitrateStr(fileAudioBitrate, mbps = false))
         var langVal = a?.language ?: ""
         if (srcAudio != null && srcAudio.language.isNotEmpty()) {
             langVal = srcAudio.language
@@ -1285,6 +1296,22 @@ class PlayerActivity : Activity() {
         if (bitrate == Format.NO_VALUE.toLong() || bitrate <= 0L) return ""
         return if (mbps) String.format("%.1f Mbps", bitrate / 1_000_000.0)
         else "${bitrate / 1000} kbps"
+    }
+
+    /** The final DV conversion applied to the video, for the stats overlay.
+     *  Mirrors the DvPlan chosen in onCreate (also written to RemoteLog).
+     *   - NATIVE      -> "Native DV" (played untouched)
+     *   - CONVERT_P8  -> "dv7 -> dv8" (Profile 7 remapped to single-layer 8.1)
+     *   - STRIP_HDR10 -> "dv7 -> hdr10" (DV NALs stripped, HDR10 base kept)
+     *  Empty for non-DV sources (no row shown). */
+    private fun dvConversionStr(): String {
+        val plan = dvPlan ?: return ""
+        val src = if (srcDvProfile > 0) "dv$srcDvProfile" else "dv"
+        return when (plan) {
+            DvPlan.NATIVE -> if (srcDvProfile > 0) "Native DV (dv$srcDvProfile)" else ""
+            DvPlan.CONVERT_P8 -> "$src -> dv8"
+            DvPlan.STRIP_HDR10 -> "$src -> hdr10"
+        }
     }
 
     /** Colour/HDR from the server's ffprobe (authoritative; Media3's client-side

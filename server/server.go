@@ -101,18 +101,18 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 	// rather than the system temp dir, so cleanup is just deleting that folder.
 	cDir := fileCacheDir(mediaPath, info.Size(), info.ModTime())
 	return &app{
-		mediaPath:            mediaPath,
-		mediaName:            filepath.Base(mediaPath),
-		mediaSize:            info.Size(),
-		mediaMod:             info.ModTime(),
-		mediaMime:            mimeForPath(mediaPath),
-		displayName:          displayName,
-		apkPath:              apkPath,
-		httpPort:             httpPort,
-		clientLogPath:        clientLogPath,
-		resume:               newResumeStore(resumePath),
-		chapters:             chapters,
-		thumbs:               newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cDir, "thumbs")),
+		mediaPath:     mediaPath,
+		mediaName:     filepath.Base(mediaPath),
+		mediaSize:     info.Size(),
+		mediaMod:      info.ModTime(),
+		mediaMime:     mimeForPath(mediaPath),
+		displayName:   displayName,
+		apkPath:       apkPath,
+		httpPort:      httpPort,
+		clientLogPath: clientLogPath,
+		resume:        newResumeStore(resumePath),
+		chapters:      chapters,
+		thumbs:        newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cDir, "thumbs")),
 		story: func() *storyboard {
 			durMs := mediaDurationMs(mediaPath)
 			intervalMs := storyboardIntervalMs
@@ -121,7 +121,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 			}
 			return newStoryboard(mediaPath, durMs, intervalMs, hdr, filepath.Join(cDir, "storyboard"))
 		}(),
-		probe:                probe,
+		probe: probe,
 		subtitles: findSidecarSubtitles(mediaPath, func(name string) string {
 			return "/subtitle?name=" + url.QueryEscape(name)
 		}),
@@ -460,19 +460,23 @@ func (a *app) handleInfo(w http.ResponseWriter, r *http.Request) {
 		chapters = []Chapter{} // emit [] not null
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":           1,
-		"version":     Version,
-		"mode":        "file",
-		"name":        a.displayName,
-		"file":        a.mediaName,
-		"size":        a.mediaSize,
-		"mime":        a.mediaMime,
-		"chapters":    chapters,
-		"thumbnails":  a.thumbs.available(),
-		"storyboard":  a.story.enabled(),
-		"video":       a.videoInfo(a.probe),
-		"audioTracks": a.probe.audioTracks,
-		"subtitles":   subsOrEmpty(a.subtitles),
+		"v":          1,
+		"version":    Version,
+		"mode":       "file",
+		"name":       a.displayName,
+		"file":       a.mediaName,
+		"size":       a.mediaSize,
+		"mime":       a.mediaMime,
+		"chapters":   chapters,
+		"thumbnails": a.thumbs.available(),
+		"storyboard": a.story.enabled(),
+		// Seek-bar step / preview interval; smaller for short videos. The client
+		// applies this even before previews are generated (the storyboard manifest,
+		// which carries the same value, only exists once previews are built).
+		"seekIntervalMs": a.story.intervalMs,
+		"video":          a.videoInfo(a.probe),
+		"audioTracks":    a.probe.audioTracks,
+		"subtitles":      subsOrEmpty(a.subtitles),
 	})
 }
 
@@ -665,10 +669,12 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		chapters = []Chapter{}
 	}
 	var hasThumbs, hasStory bool
+	seekIntervalMs := a.storyboardIntervalMs
 	if !fi.IsDir() && isVideoFile(full) {
 		item := a.getOrCreateFolderMedia(full, fi, probe, chapters)
 		hasThumbs = item.thumbs.available()
 		hasStory = item.story.enabled()
+		seekIntervalMs = item.story.intervalMs
 	}
 	mode := "folder"
 	if a.multiRoot {
@@ -682,18 +688,19 @@ func (a *app) writeFolderInfo(w http.ResponseWriter, r *http.Request) {
 		subs = folderSubtitlesFor(full, rel)
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"v":           1,
-		"version":     Version,
-		"mode":        mode,
-		"file":        filepath.Base(full),
-		"size":        fi.Size(),
-		"mime":        mimeForPath(full),
-		"chapters":    chapters,
-		"thumbnails":  hasThumbs,
-		"storyboard":  hasStory,
-		"video":       a.videoInfo(probe),
-		"audioTracks": probe.audioTracks,
-		"subtitles":   subsOrEmpty(subs),
+		"v":              1,
+		"version":        Version,
+		"mode":           mode,
+		"file":           filepath.Base(full),
+		"size":           fi.Size(),
+		"mime":           mimeForPath(full),
+		"chapters":       chapters,
+		"thumbnails":     hasThumbs,
+		"storyboard":     hasStory,
+		"seekIntervalMs": seekIntervalMs,
+		"video":          a.videoInfo(probe),
+		"audioTracks":    probe.audioTracks,
+		"subtitles":      subsOrEmpty(subs),
 	})
 }
 
