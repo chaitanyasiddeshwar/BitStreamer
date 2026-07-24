@@ -122,25 +122,17 @@ jobs:
           name: client-apk
           path: dist
 
-      - name: Convert Markdown to PDF
-        uses: baileyjm02/markdown-to-pdf@v1
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          input_path: docs/USER_MANUAL.md
-          output_dir: dist
-          build_html: false
+          node-version: '20'
 
-      - name: Organize PDF for Release
-        run: |
-          if [ -f "dist/docs/USER_MANUAL.pdf" ]; then
-            mv dist/docs/USER_MANUAL.pdf dist/USER_MANUAL.pdf
-            rm -rf dist/docs
-          elif [ -f "pdf/USER_MANUAL.pdf" ]; then
-            mv pdf/USER_MANUAL.pdf dist/USER_MANUAL.pdf
-          elif [ -f "docs/USER_MANUAL.pdf" ]; then
-            mv docs/USER_MANUAL.pdf dist/USER_MANUAL.pdf
-          fi
-          echo "Contents of dist:"
-          ls -la dist/
+      # Build the User Manual PDF via our own script (md-to-pdf / headless Chrome).
+      # Self-contained and deterministic: it writes dist/USER_MANUAL.pdf and exits
+      # non-zero if the PDF isn't produced, so a missing manual fails the release
+      # instead of publishing silently (the previous third-party action did the latter).
+      - name: Build User Manual PDF
+        run: bash scripts/build-manual-pdf.sh docs/USER_MANUAL.md dist/USER_MANUAL.pdf
 
       - name: Create Release Zip
         run: |
@@ -149,7 +141,11 @@ jobs:
 
       - name: List Release Files
         run: |
+          echo "Contents of dist:"
+          ls -la dist/
+          echo "Release zip:"
           ls -l bitstreamer-${{ github.ref_name }}.zip
+          test -s dist/USER_MANUAL.pdf
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -157,6 +153,7 @@ jobs:
           files: |
             bitstreamer-${{ github.ref_name }}.zip
             dist/USER_MANUAL.pdf
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false
           generate_release_notes: true
