@@ -2,8 +2,12 @@
 #
 # Build the User Manual PDF from Markdown.
 #
-# Used by .github/workflows/release.yml and runnable locally:
-#   bash scripts/build-manual-pdf.sh [input.md] [output.pdf]
+# The PDF is generated locally and committed at docs/USER_MANUAL.pdf; the release
+# workflow just bundles that file (no browser in CI). After editing the manual:
+#   bash scripts/build-manual-pdf.sh docs/USER_MANUAL.md docs/USER_MANUAL.pdf
+#   git add docs/USER_MANUAL.md docs/USER_MANUAL.pdf && git commit
+#
+# Usage: bash scripts/build-manual-pdf.sh [input.md] [output.pdf]
 #
 # Renders via md-to-pdf (headless Chrome / Puppeteer), which reliably handles
 # the manual's emoji (checkmarks), arrows and menu glyphs, pipe tables and

@@ -138,6 +138,17 @@ dist/
 Copy that folder to the machine that will serve your movies (add `ffmpeg.exe` too if you want
 thumbnails), and run from inside it.
 
+### User Manual PDF
+
+The release attaches a PDF of [docs/USER_MANUAL.md](docs/USER_MANUAL.md). It's generated locally
+and committed at `docs/USER_MANUAL.pdf` — the release workflow just bundles that file, so CI never
+needs a browser. After editing the manual, regenerate and commit the PDF (needs Node):
+
+```
+bash scripts/build-manual-pdf.sh docs/USER_MANUAL.md docs/USER_MANUAL.pdf
+git add docs/USER_MANUAL.md docs/USER_MANUAL.pdf && git commit
+```
+
 ## Running
 
 On the serving PC, from the `dist/` folder (allow it on Private networks when the firewall prompt appears):

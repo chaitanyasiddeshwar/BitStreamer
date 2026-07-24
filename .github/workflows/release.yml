@@ -122,17 +122,14 @@ jobs:
           name: client-apk
           path: dist
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # Build the User Manual PDF via our own script (md-to-pdf / headless Chrome).
-      # Self-contained and deterministic: it writes dist/USER_MANUAL.pdf and exits
-      # non-zero if the PDF isn't produced, so a missing manual fails the release
-      # instead of publishing silently (the previous third-party action did the latter).
-      - name: Build User Manual PDF
-        run: bash scripts/build-manual-pdf.sh docs/USER_MANUAL.md dist/USER_MANUAL.pdf
+      # The User Manual PDF is generated locally and committed at docs/USER_MANUAL.pdf
+      # (regenerate with scripts/build-manual-pdf.sh, then commit). CI just bundles it,
+      # so the release never depends on a browser/Puppeteer in the runner. Fail loudly
+      # if it's missing so a release can't publish without the manual.
+      - name: Bundle User Manual PDF
+        run: |
+          test -s docs/USER_MANUAL.pdf || { echo "::error::docs/USER_MANUAL.pdf is missing or empty — run scripts/build-manual-pdf.sh and commit it"; exit 1; }
+          cp docs/USER_MANUAL.pdf dist/USER_MANUAL.pdf
 
       - name: Create Release Zip
         run: |

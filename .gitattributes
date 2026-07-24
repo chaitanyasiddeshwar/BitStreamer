@@ -1,3 +1,7 @@
 # Shell scripts must always use LF, or they break on the Linux CI runner
 # (a CRLF shebang like "#!/usr/bin/env bash\r" fails to execute).
 *.sh text eol=lf
+
+# The User Manual PDF is generated locally and committed (see scripts/build-manual-pdf.sh);
+# treat it as binary so autocrlf never mangles it.
+*.pdf binary
