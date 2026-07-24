@@ -221,11 +221,15 @@ class BrowserActivity : Activity() {
             dialog?.dismiss()
             val forceStrip = if (isDv) (which == 1) else false
             val convertDv8 = if (isDv) (which == 2) else false
+            // "Play Normally" (which == 0) is an explicit NATIVE override, distinct
+            // from a plain click (no menu) which lets playback auto-decide.
+            val playNative = which == 0
             val genPreviews = cbPreviews.isChecked && storyboardAvailable
             playFile(
                 entry,
                 forceStripDv = forceStrip,
                 convertDv8 = convertDv8,
+                playNative = playNative,
                 generatePreviews = genPreviews
             )
         }
@@ -242,6 +246,7 @@ class BrowserActivity : Activity() {
         selected: ServerApi.FolderEntry,
         forceStripDv: Boolean = false,
         convertDv8: Boolean = false,
+        playNative: Boolean = false,
         generatePreviews: Boolean = false
     ) {
         val files = entries.filter { !it.isDir }
@@ -266,6 +271,7 @@ class BrowserActivity : Activity() {
             putExtra(PlayerActivity.EXTRA_PL_INDEX, index)
             if (forceStripDv) putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
             if (convertDv8) putExtra(PlayerActivity.EXTRA_CONVERT_DV8, true)
+            if (playNative) putExtra(PlayerActivity.EXTRA_PLAY_NATIVE, true)
             if (generatePreviews) putExtra(PlayerActivity.EXTRA_GENERATE_PREVIEWS, true)
             currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })

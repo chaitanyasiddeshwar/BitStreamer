@@ -44,6 +44,7 @@ import com.bitstreamer.client.discovery.ServerApi
 import com.bitstreamer.client.logging.RemoteLog
 import com.bitstreamer.client.playback.AudioCaps
 import com.bitstreamer.client.playback.ChapterThumbnailLoader
+import com.bitstreamer.client.playback.DvPlan
 import com.bitstreamer.client.playback.PlayerFactory
 import com.bitstreamer.client.playback.StoryboardLoader
 import java.util.concurrent.TimeUnit
@@ -103,6 +104,7 @@ class PlayerActivity : Activity() {
     private var srcStripDV = false
     private var forceStripDV = false
     private var convertDv8 = false
+    private var playNative = false
     private var lastTotalBytes = 0L
     private var lastTimestampMs = 0L
     private var liveMbps = 0.0
@@ -284,6 +286,7 @@ class PlayerActivity : Activity() {
         playlistIndex = intent.getIntExtra(EXTRA_PL_INDEX, 0)
         forceStripDV = intent.getBooleanExtra(EXTRA_FORCE_STRIP_DV, false)
         convertDv8 = intent.getBooleanExtra(EXTRA_CONVERT_DV8, false)
+        playNative = intent.getBooleanExtra(EXTRA_PLAY_NATIVE, false)
         generatePreviewsOnLaunch = intent.getBooleanExtra(EXTRA_GENERATE_PREVIEWS, false)
         if (intent.hasExtra(EXTRA_ROOT_INDEX)) {
             rootIndex = intent.getIntExtra(EXTRA_ROOT_INDEX, 0)
@@ -376,9 +379,27 @@ class PlayerActivity : Activity() {
         RemoteLog.d(TAG, "raw HDMI encodings: ${AudioCaps.hdmiEncodings(this)}")
         RemoteLog.d(TAG, "FireOS6 atmos flag: ${AudioCaps.fireOs6AtmosEnabled(this)}")
 
-        RemoteLog.d(TAG, "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV forceStripDV=$forceStripDV convertDv8=$convertDv8")
-        val fallbackToHdr10 = PlayerFactory.shouldFallbackToHdr10(srcDvProfile, srcStripDV, forceStripDV)
-        val exoPlayer = PlayerFactory.create(this, fallbackToHdr10 = fallbackToHdr10, convertDv8 = convertDv8)
+        // Manual remote-menu choices win; otherwise the plan is decided automatically
+        // from the detected DV profile and this device's capabilities.
+        val userOverride: DvPlan? = when {
+            srcStripDV -> DvPlan.STRIP_HDR10   // menu "Strip DV" or server -stripdv
+            convertDv8 -> DvPlan.CONVERT_P8    // menu "Convert to DV8"
+            playNative -> DvPlan.NATIVE        // menu "Play Normally"
+            else -> null                       // plain launch -> automatic
+        }
+        val dvCaps = PlayerFactory.probeDvCaps(this)
+        val plan = PlayerFactory.planDv(srcDvProfile, srcHdr10Plus, dvCaps, userOverride)
+        RemoteLog.d(
+            TAG,
+            "video: dvProfile=$srcDvProfile hdr10+=$srcHdr10Plus stripDV=$srcStripDV " +
+                "forceStripDV=$forceStripDV convertDv8=$convertDv8 playNative=$playNative " +
+                "override=$userOverride caps=$dvCaps -> plan=$plan"
+        )
+        val exoPlayer = PlayerFactory.create(
+            this,
+            fallbackToHdr10 = plan == DvPlan.STRIP_HDR10,
+            convertDv8 = plan == DvPlan.CONVERT_P8,
+        )
         player = exoPlayer
         playerView.player = if (isImage(currentTitle)) {
             exoPlayer
@@ -575,6 +596,7 @@ class PlayerActivity : Activity() {
             putExtra(EXTRA_FOLDER_MODE, true)
             if (forceStripDV) putExtra(EXTRA_FORCE_STRIP_DV, true)
             if (convertDv8) putExtra(EXTRA_CONVERT_DV8, true)
+            if (playNative) putExtra(EXTRA_PLAY_NATIVE, true)
             rootIndex?.let { putExtra(EXTRA_ROOT_INDEX, it) }
             putStringArrayListExtra(EXTRA_PL_URLS, playlistUrls)
             putStringArrayListExtra(EXTRA_PL_TITLES, playlistTitles)
@@ -1315,6 +1337,7 @@ class PlayerActivity : Activity() {
         const val EXTRA_INFO_PATH = "infoPath"
         const val EXTRA_FORCE_STRIP_DV = "forceStripDV"
         const val EXTRA_CONVERT_DV8 = "convertDv8"
+        const val EXTRA_PLAY_NATIVE = "playNative"
         const val EXTRA_GENERATE_PREVIEWS = "generatePreviews"
         const val EXTRA_PL_URLS = "playlistUrls"
         const val EXTRA_PL_TITLES = "playlistTitles"

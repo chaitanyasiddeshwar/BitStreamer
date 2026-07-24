@@ -196,7 +196,9 @@ class DiscoveryActivity : Activity() {
                 if (which == 1) {
                     playWithStripDV(server)
                 } else {
-                    play(server)
+                    // "Play Normally" is an explicit NATIVE override (no processing),
+                    // distinct from a plain list click which auto-decides.
+                    playNativeDv(server)
                 }
             }
             .show()
@@ -207,6 +209,14 @@ class DiscoveryActivity : Activity() {
             putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)
             putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
             putExtra(PlayerActivity.EXTRA_FORCE_STRIP_DV, true)
+        })
+    }
+
+    private fun playNativeDv(server: DiscoveryClient.Server) {
+        startActivity(Intent(this, PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)
+            putExtra(PlayerActivity.EXTRA_TITLE, server.file.ifEmpty { server.name })
+            putExtra(PlayerActivity.EXTRA_PLAY_NATIVE, true)
         })
     }
 

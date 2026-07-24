@@ -1,6 +1,10 @@
 package com.bitstreamer.client.playback
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.media.MediaCodecList
+import android.os.Build
+import android.view.Display
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -38,6 +42,32 @@ import com.suyashbelekar.exoplayerhdrutils.video.transformers.Hdr10PlusStrategy
 import com.suyashbelekar.exoplayerhdrutils.video.transformers.TransformStrategy
 
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+
+/**
+ * How to handle a Dolby Vision source on this device.
+ *  - NATIVE:      hand the stream to the platform as-is (no processing).
+ *  - CONVERT_P8:  convert Profile 7 -> Profile 8.1 (drop EL, remap RPU) via
+ *                 ExoplayerHdrUtils. Keeps DV dynamic metadata; works for MEL & FEL.
+ *  - STRIP_HDR10: strip DV NAL 62/63 and fall back to plain HEVC/HDR10.
+ */
+enum class DvPlan { NATIVE, CONVERT_P8, STRIP_HDR10 }
+
+/**
+ * What this device can do with Dolby Vision, probed from MediaCodecList + Display.
+ *  - hasDvDecoder:      a video/dolby-vision decoder exists (Fire TV 4K/Max: true).
+ *  - nativeDualLayer:   DIAGNOSTIC ONLY (logged, not used for decisions). The DV
+ *                       decoder name contains "mtk"/"realtek". This does NOT reliably
+ *                       mean the device decodes Profile 7 dual-layer — Fire TV's
+ *                       MediaTek decoder reports this yet is single-layer only. See
+ *                       planDv().
+ *  - displaySupportsDv: the connected display reports HDR_TYPE_DOLBY_VISION (sanity/log).
+ */
+data class DvCaps(
+    val hasDvDecoder: Boolean,
+    val dvDecoderName: String?,
+    val nativeDualLayer: Boolean,
+    val displaySupportsDv: Boolean,
+)
 
 /**
  * The single place ExoPlayer is configured. The choices here exist to keep
@@ -93,6 +123,98 @@ object PlayerFactory {
 
     fun shouldFallbackToHdr10(dvProfile: Int, stripDV: Boolean, forceStripDV: Boolean): Boolean {
         return stripDV || forceStripDV
+    }
+
+    /**
+     * Probe what this device can do with Dolby Vision. Mirrors the approach ViMu
+     * and Kodi use: scan MediaCodecList for a video/dolby-vision decoder, and flag
+     * MediaTek/Realtek decoders as native dual-layer capable. Also reads the
+     * display's HDR capabilities (informational). Safe to call on any device; all
+     * failures degrade to "no DV".
+     */
+    @OptIn(UnstableApi::class)
+    fun probeDvCaps(context: Context): DvCaps {
+        var hasDv = false
+        var name: String? = null
+        var nativeDual = false
+        try {
+            for (info in MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos) {
+                if (info.isEncoder) continue
+                val supportsDv = info.supportedTypes.any {
+                    it.equals(MimeTypes.VIDEO_DOLBY_VISION, ignoreCase = true)
+                }
+                if (!supportsDv) continue
+                hasDv = true
+                if (name == null) name = info.name
+                val lower = info.name.lowercase()
+                if (lower.contains("mtk") || lower.contains("realtek")) {
+                    nativeDual = true
+                    name = info.name // prefer the dual-layer-capable decoder's name
+                    break
+                }
+            }
+        } catch (t: Throwable) {
+            RemoteLog.d("PlayerFactory", "DV capability probe failed: ${t.message}")
+        }
+
+        var displayDv = false
+        try {
+            if (Build.VERSION.SDK_INT >= 24) {
+                val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+                val display = dm?.getDisplay(Display.DEFAULT_DISPLAY)
+                @Suppress("DEPRECATION")
+                val hdr = display?.hdrCapabilities
+                @Suppress("DEPRECATION")
+                displayDv = hdr?.supportedHdrTypes?.contains(
+                    Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION
+                ) ?: false
+            }
+        } catch (t: Throwable) {
+            RemoteLog.d("PlayerFactory", "DV display probe failed: ${t.message}")
+        }
+
+        return DvCaps(hasDv, name, nativeDual, displayDv)
+    }
+
+    /**
+     * Decide how to play a Dolby Vision source, automatically. **Device-agnostic:**
+     * the decision is keyed only on the source DV profile and whether the platform
+     * exposes a Dolby Vision decoder ([DvCaps.hasDvDecoder], probed from
+     * MediaCodecList). There are deliberately NO Build.MODEL or decoder-name checks.
+     *
+     * Policy — the superset of what ViMu/Kodi/Emby do, adapted to an ExoPlayer client:
+     *  - Profile 5:  NATIVE. Its base layer is proprietary IPTPQc2 (not HDR10), so it
+     *                can only be shown by a real DV pipeline and must never be stripped
+     *                (stripping gives wrong colors). Nothing safe to do otherwise.
+     *  - Profile 7:  hasDvDecoder -> CONVERT_P8 (drop EL, remap RPU to 8.1; keeps DV
+     *                dynamic metadata; correct for MEL and FEL alike).
+     *                else         -> STRIP_HDR10 (BL is HDR10-compatible).
+     *  - Profile 8:  hasDvDecoder -> NATIVE (single-layer DV, decoded directly).
+     *                else         -> STRIP_HDR10 (8.1 base is HDR10-compatible).
+     *  - Not DV:     NATIVE.
+     *
+     * Why NATIVE is never correct for Profile 7 on ANY device here: BitStreamer decodes
+     * through ExoPlayer/MediaCodec, and media3's extractor drops the Profile 7
+     * enhancement layer before it ever reaches the decoder. So no device — not even a
+     * true dual-layer player — can present FEL through this pipeline; converting to
+     * single-layer P8.1 is the only way to keep Dolby Vision for Profile 7. This is why
+     * we do NOT branch on [DvCaps.nativeDualLayer] (a "mtk"/"realtek" decoder name is
+     * meaningless here; the Fire TV MediaTek decoder reports it yet is single-layer
+     * only). Converting is also safe on genuine dual-layer hardware — you lose only the
+     * imperceptible FEL residual, never the DV look.
+     *
+     * A non-null [userOverride] (from the remote menu) always wins.
+     * [hdr10Plus] is accepted for future dual-metadata handling; unused today (the
+     * CONVERT_P8 transform already discards co-present HDR10+).
+     */
+    fun planDv(dvProfile: Int, hdr10Plus: Boolean, caps: DvCaps, userOverride: DvPlan?): DvPlan {
+        if (userOverride != null) return userOverride
+        return when (dvProfile) {
+            5 -> DvPlan.NATIVE
+            7 -> if (caps.hasDvDecoder) DvPlan.CONVERT_P8 else DvPlan.STRIP_HDR10
+            8 -> if (caps.hasDvDecoder) DvPlan.NATIVE else DvPlan.STRIP_HDR10
+            else -> DvPlan.NATIVE
+        }
     }
 
     fun mapFormat(format: Format, fallbackToHdr10: Boolean): Format {
