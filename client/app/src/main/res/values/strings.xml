@@ -13,6 +13,7 @@
     <string name="resume_title">Resume playback?</string>
     <string name="resume_from">Resume from %1$s</string>
     <string name="start_over">Start from beginning</string>
+    <string name="mark_as_done">Mark as done</string>
     <string name="opt_audio">Audio</string>
     <string name="opt_subtitles">Subtitles</string>
     <string name="opt_chapters">Chapters</string>

@@ -107,7 +107,7 @@ func main() {
 
 	if flag.NArg() > 1 {
 		// Multi-root mode: multiple folder arguments.
-		app, err = newMultiRootApp(flag.Args(), *name, *apk, *clientLog, *port, int64(*interval)*1000)
+		app, err = newMultiRootApp(flag.Args(), *name, *apk, *clientLog, *resumeFile, *port, int64(*interval)*1000)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)

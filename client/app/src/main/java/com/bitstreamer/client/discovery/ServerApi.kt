@@ -247,9 +247,13 @@ class ServerApi(private val baseUrl: String) {
     }
 
     /** Last stored resume position for this client, or 0 if none. */
-    fun getResumePositionMs(): Long {
+    fun getResumePositionMs(path: String? = null, rootIndex: Int? = null): Long {
         return try {
-            val conn = URL("$baseUrl/position").openConnection() as HttpURLConnection
+            val params = mutableListOf<String>()
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
+            val conn = URL("$baseUrl/position$query").openConnection() as HttpURLConnection
             conn.connectTimeout = 2000
             conn.readTimeout = 2000
             val body = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
@@ -260,9 +264,13 @@ class ServerApi(private val baseUrl: String) {
     }
 
     /** Stores the playback position; 0 clears the stored position. */
-    fun postPosition(positionMs: Long) {
+    fun postPosition(positionMs: Long, path: String? = null, rootIndex: Int? = null) {
         try {
-            val conn = URL("$baseUrl/position?ms=$positionMs").openConnection() as HttpURLConnection
+            val params = mutableListOf("ms=$positionMs")
+            if (rootIndex != null) params.add("root=$rootIndex")
+            if (!path.isNullOrEmpty()) params.add("path=${enc(path)}")
+            val query = "?${params.joinToString("&")}"
+            val conn = URL("$baseUrl/position$query").openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.connectTimeout = 2000
             conn.readTimeout = 2000

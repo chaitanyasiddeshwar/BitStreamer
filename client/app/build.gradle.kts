@@ -52,6 +52,13 @@ dependencies {
 // "Downloader" app. Runs automatically for both debug and release builds
 // (Android Studio's Run also triggers assembleDebug).
 val distDir = rootProject.layout.projectDirectory.dir("../dist")
+val copyInstallScriptTask = tasks.register<Copy>("copyInstallScriptToDist") {
+    from(rootProject.layout.projectDirectory.dir("../")) {
+        include("install-client.bat")
+    }
+    into(distDir)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
 listOf("Release", "Debug").forEach { variant ->
     val copyTask = tasks.register<Copy>("copy${variant}ApkToDist") {
         from(layout.buildDirectory.dir("outputs/apk/${variant.lowercase()}")) {
@@ -62,6 +69,6 @@ listOf("Release", "Debug").forEach { variant ->
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
     tasks.matching { it.name == "assemble$variant" }.configureEach {
-        finalizedBy(copyTask)
+        finalizedBy(copyTask, copyInstallScriptTask)
     }
 }

@@ -83,6 +83,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 			apkPath:              apkPath,
 			httpPort:             httpPort,
 			clientLogPath:        clientLogPath,
+			resume:               newResumeStore(resumePath),
 			storyboardIntervalMs: storyboardIntervalMs,
 		}, nil
 	}
@@ -109,7 +110,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 		apkPath:              apkPath,
 		httpPort:             httpPort,
 		clientLogPath:        clientLogPath,
-		resume:               newResumeStore(resumePath, mediaPath),
+		resume:               newResumeStore(resumePath),
 		chapters:             chapters,
 		thumbs:               newThumbnailer(mediaPath, info.ModTime(), chapters, hdr, filepath.Join(cDir, "thumbs")),
 		story: func() *storyboard {
@@ -131,7 +132,7 @@ func newApp(mediaPath, displayName, apkPath, clientLogPath, resumePath string, h
 
 // newMultiRootApp creates a multi-root folder-mode app from multiple directories.
 // Each directory becomes a browsable root the client can select.
-func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
+func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath, resumePath string, httpPort int, storyboardIntervalMs int64) (*app, error) {
 	roots := make([]rootEntry, 0, len(dirs))
 	for _, d := range dirs {
 		if len(d) == 2 && d[1] == ':' {
@@ -154,6 +155,7 @@ func newMultiRootApp(dirs []string, displayName, apkPath, clientLogPath string, 
 		apkPath:              apkPath,
 		httpPort:             httpPort,
 		clientLogPath:        clientLogPath,
+		resume:               newResumeStore(resumePath),
 		storyboardIntervalMs: storyboardIntervalMs,
 	}, nil
 }
@@ -517,7 +519,7 @@ type folderMediaItem struct {
 func isVideoFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".ts", ".m2ts":
+	case ".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".ts", ".m2ts", ".flv", ".ogv", ".mpg", ".mpeg", ".ps", ".vob":
 		return true
 	}
 	return false
@@ -789,22 +791,71 @@ func (a *app) handleClientLog(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *app) resolvePositionFileKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if !a.folderMode {
+		return a.mediaPath, isVideoFile(a.mediaPath)
+	}
+	rel := r.URL.Query().Get("path")
+	if rel == "" {
+		http.Error(w, "path required in folder mode", http.StatusBadRequest)
+		return "", false
+	}
+	var full string
+	var ok bool
+	var keyPrefix string
+	if a.multiRoot {
+		rootIdx, rok := a.parseRoot(w, r)
+		if !rok {
+			return "", false
+		}
+		full, ok = a.resolveRootPath(rootIdx, rel)
+		keyPrefix = fmt.Sprintf("root%d:", rootIdx)
+	} else {
+		full, ok = a.resolvePath(rel)
+		keyPrefix = ""
+	}
+	if !ok {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return "", false
+	}
+	return keyPrefix + rel, isVideoFile(full)
+}
+
 func (a *app) handlePosition(w http.ResponseWriter, r *http.Request) {
 	if a.resume == nil {
-		http.Error(w, "position endpoint disabled in folder mode", http.StatusNotFound)
+		http.Error(w, "resume store uninitialized", http.StatusInternalServerError)
 		return
 	}
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		clientIP = r.RemoteAddr
 	}
+
+	fileKey, isVideo := a.resolvePositionFileKey(w, r)
+	if fileKey == "" {
+		return
+	}
+	if !isVideo {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"v":          1,
+				"file":       fileKey,
+				"positionMs": int64(0),
+			})
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"v":          1,
-			"file":       a.mediaName,
-			"positionMs": a.resume.get(clientIP),
+			"file":       fileKey,
+			"positionMs": a.resume.get(clientIP, fileKey),
 		})
 	case http.MethodPost:
 		ms, err := strconv.ParseInt(r.URL.Query().Get("ms"), 10, 64)
@@ -812,7 +863,7 @@ func (a *app) handlePosition(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "ms must be a non-negative integer", http.StatusBadRequest)
 			return
 		}
-		a.resume.set(clientIP, ms)
+		a.resume.set(clientIP, fileKey, ms)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", "GET, POST")

@@ -185,7 +185,7 @@ func TestFolderPathTraversalIsConfined(t *testing.T) {
 
 func TestFolderModeDisablesSingleFileEndpoints(t *testing.T) {
 	_, srv := newFolderTestApp(t)
-	for _, path := range []string{"/chapter-thumb?index=0", "/storyboard.json", "/position"} {
+	for _, path := range []string{"/chapter-thumb?index=0", "/storyboard.json"} {
 		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -194,5 +194,47 @@ func TestFolderModeDisablesSingleFileEndpoints(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("%s in folder mode = %d, want 404", path, resp.StatusCode)
 		}
+	}
+}
+
+func TestFolderModeResume(t *testing.T) {
+	app, _ := newFolderTestApp(t)
+
+	// GET position for video file without position stored returns 0
+	req := httptest.NewRequest("GET", "/position?path=m1.mkv", nil)
+	rec := httptest.NewRecorder()
+	app.handler().ServeHTTP(rec, req)
+	var out struct {
+		PositionMs int64 `json:"positionMs"`
+	}
+	json.NewDecoder(rec.Body).Decode(&out)
+	if out.PositionMs != 0 {
+		t.Errorf("initial position = %d, want 0", out.PositionMs)
+	}
+
+	// Store position 60000ms for m1.mkv
+	postReq := httptest.NewRequest("POST", "/position?path=m1.mkv&ms=60000", nil)
+	postRec := httptest.NewRecorder()
+	app.handler().ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusNoContent {
+		t.Fatalf("POST position status = %d, want 204", postRec.Code)
+	}
+
+	// Retrieve position for m1.mkv
+	req2 := httptest.NewRequest("GET", "/position?path=m1.mkv", nil)
+	rec2 := httptest.NewRecorder()
+	app.handler().ServeHTTP(rec2, req2)
+	json.NewDecoder(rec2.Body).Decode(&out)
+	if out.PositionMs != 60000 {
+		t.Errorf("position after store = %d, want 60000", out.PositionMs)
+	}
+
+	// m2.mkv position remains 0
+	req3 := httptest.NewRequest("GET", "/position?path=m2.mkv", nil)
+	rec3 := httptest.NewRecorder()
+	app.handler().ServeHTTP(rec3, req3)
+	json.NewDecoder(rec3.Body).Decode(&out)
+	if out.PositionMs != 0 {
+		t.Errorf("unrelated file position = %d, want 0", out.PositionMs)
 	}
 }

@@ -156,9 +156,11 @@ class PlayerActivity : Activity() {
     private val reportPosition = object : Runnable {
         override fun run() {
             val p = player ?: return
-            if (p.isPlaying) {
-                val ms = p.currentPosition
-                Thread { api?.postPosition(ms) }.start()
+            if (p.isPlaying && isVideo(currentTitle, srcMime)) {
+                val pos = p.currentPosition
+                val dur = p.duration
+                val ms = if (dur > 0L && pos >= (dur * 0.9)) 0L else pos
+                Thread { api?.postPosition(ms, infoPath.ifEmpty { null }, rootIndex) }.start()
             }
             mainHandler.postDelayed(this, POSITION_REPORT_INTERVAL_MS)
         }
@@ -293,8 +295,10 @@ class PlayerActivity : Activity() {
         // Fetch metadata before playback. Folder mode skips resume/storyboard.
         Thread {
             val a = api
-            val resumeMs = if (folderMode) 0L else (a?.getResumePositionMs() ?: 0L)
             val info = a?.getInfo(infoPath.ifEmpty { null }, rootIndex)
+            val mime = info?.mime ?: ""
+            val isVid = isVideo(currentTitle, mime)
+            val resumeMs = if (isVid) (a?.getResumePositionMs(infoPath.ifEmpty { null }, rootIndex) ?: 0L) else 0L
             val sb = if (info?.storyboardAvailable == true) a?.getStoryboard(infoPath.ifEmpty { null }, rootIndex) else null
             mainHandler.post {
                 if (!isFinishing) {
@@ -347,14 +351,19 @@ class PlayerActivity : Activity() {
         storyboardLoader = null
         hideScrubPreview()
         val p = player
+        val dur = p?.duration ?: -1L
+        val pos = p?.currentPosition ?: -1L
         val finalPositionMs = when {
-            p == null -> -1
-            p.playbackState == Player.STATE_ENDED -> 0 // finished: clear resume point
-            else -> p.currentPosition
+            p == null -> -1L
+            p.playbackState == Player.STATE_ENDED -> 0L // finished: clear resume point
+            dur > 0L && pos >= (dur * 0.9) -> 0L // reached >= 90% of duration: clear resume point
+            else -> pos
         }
         releasePlayer()
         Thread {
-            if (!folderMode && finalPositionMs >= 0) api?.postPosition(finalPositionMs)
+            if (isVideo(currentTitle, srcMime) && finalPositionMs >= 0) {
+                api?.postPosition(finalPositionMs, infoPath.ifEmpty { null }, rootIndex)
+            }
             RemoteLog.flushNow()
         }.start()
     }
@@ -481,7 +490,9 @@ class PlayerActivity : Activity() {
                     errorView.visibility = View.GONE
                 }
                 if (playbackState == Player.STATE_ENDED) {
-                    Thread { api?.postPosition(0) }.start() // finished: clear resume point
+                    if (isVideo(currentTitle, srcMime)) {
+                        Thread { api?.postPosition(0, infoPath.ifEmpty { null }, rootIndex) }.start() // finished: clear resume point
+                    }
                     if (folderMode && isImage(currentTitle)) {
                         val nextIndex = playlistIndex + 1
                         val urls = playlistUrls
@@ -528,15 +539,24 @@ class PlayerActivity : Activity() {
         }
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
-        if (!folderMode && resumeMs >= MIN_RESUME_MS) {
+        if (isVideo(currentTitle, srcMime) && resumeMs >= MIN_RESUME_MS) {
             exoPlayer.playWhenReady = false
             showResumeDialog(resumeMs)
         } else {
             exoPlayer.playWhenReady = true
         }
-        if (!folderMode) {
+        if (isVideo(currentTitle, srcMime)) {
             mainHandler.postDelayed(reportPosition, POSITION_REPORT_INTERVAL_MS)
         }
+    }
+
+    private fun isVideo(title: String, mime: String): Boolean {
+        if (mime.startsWith("video/")) return true
+        if (mime.startsWith("audio/") || mime.startsWith("image/")) return false
+        val ext = title.substringAfterLast('.', "").lowercase()
+        val audioExts = setOf("mp3", "m4a", "aac", "ac3", "eac3", "ac4", "flac", "wav", "ogg", "opus", "amr", "mka")
+        val imageExts = setOf("jpg", "jpeg", "png", "webp", "bmp", "heic", "heif", "avif")
+        return ext.isNotEmpty() && ext !in audioExts && ext !in imageExts
     }
 
     private fun isImage(name: String): Boolean {
@@ -970,6 +990,11 @@ class PlayerActivity : Activity() {
                 player?.playWhenReady = true
             }
             .setNegativeButton(R.string.start_over) { _, _ ->
+                player?.playWhenReady = true
+            }
+            .setNeutralButton(R.string.mark_as_done) { _, _ ->
+                Thread { api?.postPosition(0, infoPath.ifEmpty { null }, rootIndex) }.start()
+                player?.seekTo(0)
                 player?.playWhenReady = true
             }
             .setOnCancelListener {

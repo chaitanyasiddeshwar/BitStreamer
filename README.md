@@ -1,14 +1,14 @@
 # BitStreamer
 _(I started this project because I was frustrated with Plex/Emby/Jellyfin since none could give me full bit streaming support (esp DTS) and mixed experience with Dolby Vision/HDR10+.This is still limited by what the FireTV can support, but serves my very specific purpose of being able to serve and watch one movie/episode with full bitstream and DV/HDR support. I hope it is useful to others)_
 
-BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site or create an account. You can build and run the whole code from your local machine if you have the right tools.
+BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file or multi-folder** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site for this. You can build and run the whole code from your local machine if you have the right tools.
 
 - `server/` — Go server, one self-contained binary, serves the file over HTTP with Range support
 - `client/` — Android TV app (Media3/ExoPlayer) for Fire TV
 - `docs/` — [project plan](docs/PROJECT_PLAN.md) · [audio passthrough](docs/AUDIO_PASSTHROUGH.md) · [HDR & Dolby Vision](docs/HDR_DOLBY_VISION.md) · [Media3 notes](docs/MEDIA3.md) · [thumbnails](docs/THUMBNAILS.md) · [remote key map](docs/REMOTE.md)
 
 **Note:** 
-* Folder support is fully completed and stable! You can serve a directory of movies/episodes/images, browse them, play slideshows, view chapters, and resume playback per file.
+* Folder support is fully completed and stable! You can serve single or **multiple directories simultaneously** (`bitstreamer.exe "C:\Movies" "D:\TV Shows"`), browse them via a dedicated root selector screen, view video thumbnails, play slideshows, view chapters, and resume playback per file.
 * Check [Known Issues](#known-issues) below to know what the Hardware itself doesn't support.
 * This is untested on Nvidia Shield but might work there since it is built for Android TV - if someone does, let me know how it goes.
 
@@ -33,12 +33,12 @@ sweet spot. Supported extensions:
 | **Dolby Vision Profile 5** | ✅ Yes | Direct native playback (IPTPQc2 colorspace). |
 | **Dolby Vision Profile 8.1** | ✅ Yes | Direct native playback (even if file also carries HDR10+ metadata, e.g. *Ford v Ferrari*). |
 | **Dolby Vision Profile 7 MEL** | ✅ Yes | Direct native playback of the base layer which is a standard HDR10 or HDR10+ stream). |
-| **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays perfectly using our on-the-fly Annex B NAL stripping fallback (`-stripdv` server flag or `Strip DV and Play` client menu option). |
+| **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays using our real-time high-performance zero-allocation NAL stripping fallback (`Strip DV and Play` / `-stripdv`), or `Convert to DV8 and Play` option. |
 
 Two cases get a specific printed fix instead:
 - **`.m2ts`/`.mts`** (Blu-ray transport streams) — ExoPlayer can't parse their 192-byte
   packets; the server prints a lossless `ffmpeg` remux-to-MKV command and exits.
-- **Dolby Vision Profile 7 FEL** — plays audio only (black video); the server offers on-the-fly real-time stripping, or prints a lossless offline `ffmpeg` command to strip it. See [docs/HDR_DOLBY_VISION.md](docs/HDR_DOLBY_VISION.md).
+- **Dolby Vision Profile 7 FEL** — plays audio only (black video); the server offers on-the-fly real-time NAL stripping, on-the-fly Profile 8 conversion (`Convert to DV8 and Play`), or prints a lossless offline `ffmpeg` command to strip it. See [docs/HDR_DOLBY_VISION.md](docs/HDR_DOLBY_VISION.md).
 
 (Playing still depends on the codec inside being one the Fire TV can decode — e.g. MPEG-2 in
 `.vob` may not; the container is what's validated here.)
@@ -107,6 +107,12 @@ The APK builds to `client/app/build/outputs/apk/<variant>/`, and a post-build st
 **automatically copies it to `dist/client.apk`** — the spot the server serves it from. No
 manual copying needed. (Android Studio's Run triggers `assembleDebug`, which copies too.)
 
+To install the APK directly to your Fire TV over ADB:
+```cmd
+install-client.bat 192.168.1.50
+```
+*(Ensure ADB Debugging is enabled under **Settings -> My Fire TV -> Developer Options -> ADB Debugging -> ON**. Find your Fire TV IP under **Settings -> My Fire TV -> About -> Network**).*
+
 App icon / banner: the launcher icon (`res/drawable/app_icon.xml`) and the Fire TV home
 banner (`res/drawable/banner.xml`) are vector drawables — no image assets needed. To use
 your own artwork, drop a PNG (e.g. `res/mipmap/ic_launcher.png` for the icon,
@@ -142,18 +148,22 @@ bitstreamer.exe "C:\Movies\film.mkv"                      # Windows
 ./bitstreamer-macos "/Volumes/Movies/film.mkv"            # macOS
 ./bitstreamer-linux "/path/to/film.mkv"                   # Linux
 
-# Folder Mode (Browse whole drives/directories):
+# Folder Mode (Browse single directory or drive root):
 bitstreamer.exe "C:\Movies"                               # Serves the whole folder
 bitstreamer.exe "D:\"                                     # Serves a whole drive root on Windows
+
+# Multi-Folder Mode (Browse multiple roots):
+bitstreamer.exe "C:\Movies" "D:\TV Shows" "E:\Videos"     # Client displays Root Selection screen
 ```
 
 ### Server Command Line Options:
 * `--port <number>`: HTTP port to serve on (default: `46898`).
 * `--name <string>`: Custom display name announced to clients (default: hostname).
-* `--interval <seconds>`: Spacing between scrubbing-preview thumbnails (default: `30`). Also sets the seek-bar step size on the client.
+* `--interval <seconds>`: Spacing between scrubbing-preview thumbnails (default: `30`, automatically drops to `10` for videos under 10 minutes). Also sets seek-bar step size.
 * `-stripdv`: Forces client-side Annex B stripping of Dolby Vision metadata to fallback to HDR10 (only applies to Profile 7 files).
-* `-skip-previews`: Skips generating the storyboard seek-bar preview sprites at startup (useful for instant startup on slow systems).
-* `--keep-cache`: Do not delete generated thumbnails and preview cache from the `cache/` directory on exit.
+* `-skip-previews`: Skips generating the storyboard seek-bar preview sprites at startup.
+* `--no-caching`: Disables persistent disk caching of metadata/thumbnails across server runs (persistent cache is enabled by default in `cache/`).
+* `--keep-cache`: Legacy flag to preserve thumbnail/preview cache directory.
 
 The server prints the stream URL, the APK URL, and whether chapter thumbnails / scrub previews are enabled.
 
@@ -174,15 +184,16 @@ Open BitStreamer on the Fire TV — it finds the server automatically and starts
 * **Navigation (List View):**
   * **Select/OK:** Opens folders or starts playback.
   * **Back:** Goes up one directory (retains your list selection position).
-  * **Menu (≡):** On a Dolby Vision file, opens the option dialog (`Play Normally` / `Strip DV and Play`).
+  * **Menu (≡):** On a movie file, opens option dialog (`Play Normally`, `Strip DV and Play`, `Convert to DV8 and Play`, plus `Generate Seekbar Previews` option).
 * **Video Playback Controls:**
   * **DPAD Center / Play-Pause:** Toggles play and pause.
   * **DPAD Left / Right:** Jumps backwards/forwards by one preview interval (default: 30s) and shows the scrubbing preview frame.
   * **RW / FF (Rewind / Fast Forward):** Seeks to the previous / next chapter directly (falls back to standard seek if the file has no chapters).
   * **DPAD Up:** Focuses and opens the on-screen seek bar.
-  * **DPAD Down:** Opens the option menus (Audio tracks, Subtitles, Chapters, Stats).
+  * **DPAD Down:** Opens option menus (Audio tracks, Subtitles, Chapters, Stats).
+  * **Previews Button (Film Strip Icon):** Triggers on-demand seek-bar preview generation with real-time progress bar UI.
   * **Menu (≡):** Toggles the **Stats for Nerds** overlay (codecs, resolution, frame rate, HDR profile, real-time bandwidth meter, audio passthrough, dropped frames).
-  * **Back:** Hides controls, or exits playback back to the folder list.
+  * **Back:** Hides controls, or exits playback back to the folder list (prevented while preview progress overlay is active).
 * **Image Playback Controls:**
   * Plays each image for **5 seconds** and automatically advances to the next image in folder mode.
   * **DPAD Center:** Pauses or resumes the slideshow auto-advance.

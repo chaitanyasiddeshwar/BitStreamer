@@ -36,7 +36,7 @@ func newMultiRootTestApp(t *testing.T) (*app, *httptest.Server) {
 	a, err := newMultiRootApp(
 		[]string{root1, root2},
 		"TestMulti", filepath.Join(base, "c.apk"),
-		filepath.Join(base, "log.txt"), 46898, 30000,
+		filepath.Join(base, "log.txt"), filepath.Join(base, "resume.json"), 46898, 30000,
 	)
 	if err != nil {
 		t.Fatal(err)

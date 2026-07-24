@@ -6,26 +6,22 @@ import (
 	"sync"
 )
 
-// resumeStore remembers the last playback position per client IP for the
-// currently served file, persisted as a small JSON file so a server restart
-// with the same file keeps resume points. Positions stored for a different
-// file are discarded on load — switching files clears all resume state.
+// resumeStore remembers the last playback position per video file per client IP,
+// persisted as a small JSON file so server restarts retain resume points across
+// single-file mode and folder mode.
 type resumeStore struct {
 	mu        sync.Mutex
 	path      string
-	mediaPath string
-	positions map[string]int64 // client IP -> playback position in ms
+	positions map[string]int64 // "clientIP|fileKey" -> playback position in ms
 }
 
 type resumeFileFormat struct {
-	MediaPath string           `json:"mediaPath"`
 	Positions map[string]int64 `json:"positions"`
 }
 
-func newResumeStore(path, mediaPath string) *resumeStore {
+func newResumeStore(path string) *resumeStore {
 	rs := &resumeStore{
 		path:      path,
-		mediaPath: mediaPath,
 		positions: map[string]int64{},
 	}
 	rs.load()
@@ -41,36 +37,33 @@ func (rs *resumeStore) load() {
 	if json.Unmarshal(data, &rf) != nil {
 		return
 	}
-	if rf.MediaPath != rs.mediaPath {
-		os.Remove(rs.path) // new file being served: stale positions are meaningless
-		return
-	}
 	if rf.Positions != nil {
 		rs.positions = rf.Positions
 	}
 }
 
-func (rs *resumeStore) get(clientIP string) int64 {
+func (rs *resumeStore) get(clientIP, fileKey string) int64 {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	return rs.positions[clientIP]
+	key := clientIP + "|" + fileKey
+	return rs.positions[key]
 }
 
-// set stores a position; ms <= 0 clears the client's resume point.
-func (rs *resumeStore) set(clientIP string, ms int64) {
+// set stores a position; ms <= 0 clears the client's resume point for fileKey.
+func (rs *resumeStore) set(clientIP, fileKey string, ms int64) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
+	key := clientIP + "|" + fileKey
 	if ms <= 0 {
-		delete(rs.positions, clientIP)
+		delete(rs.positions, key)
 	} else {
-		rs.positions[clientIP] = ms
+		rs.positions[key] = ms
 	}
 	rs.persist()
 }
 
 func (rs *resumeStore) persist() {
 	data, err := json.MarshalIndent(resumeFileFormat{
-		MediaPath: rs.mediaPath,
 		Positions: rs.positions,
 	}, "", "  ")
 	if err != nil {

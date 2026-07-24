@@ -34,12 +34,15 @@ Profile 7 is **dual-layer**: a Base Layer (BL, HDR10-compatible HEVC) plus an En
 
 ---
 
-## On-the-Fly Fallback: NAL Stripping & Decoder Bypass
+## On-the-Fly Fallback: NAL Stripping & DV8 Conversion
 
-To handle Profile 7 FEL files (like *Titanic*) on the fly without permanent file conversion, BitStreamer supports real-time NAL unit stripping and decoder bypassing.
+To handle Profile 7 FEL files (like *Titanic*) on the fly without permanent file conversion, BitStreamer supports real-time NAL unit stripping and on-the-fly Profile 8 conversion.
 
-This can be triggered in two ways:
-1. **In-Client Remote Menu (Recommended):** Pressing the **Menu (≡)** key on your remote while a Dolby Vision file is highlighted in single-file or folder list views brings up a selection menu: `Play Normally` or `Strip DV and Play`. Choosing the latter forces the fallback on demand.
+This can be triggered via:
+1. **In-Client Remote Menu (Recommended):** Pressing the **Menu (≡)** key on your remote while a Dolby Vision file is highlighted in single-file or folder list views brings up a selection menu:
+   - `Play Normally`: Native Dolby Vision playback.
+   - `Strip DV and Play`: Forces HEVC/HDR10 fallback by stripping NAL 62/63 metadata on the fly.
+   - `Convert to DV8 and Play`: Converts Profile 7 / Profile 8 streams on the fly to Dolby Vision Profile 8 using `ExoplayerHdrUtils` 0.3.0 for displays that support Profile 8 but stall on Profile 7 FEL.
 2. **Server-side command-line flag:** Launch the server with the `-stripdv` command-line argument:
    ```cmd
    bitstreamer.exe -stripdv "Titanic.mkv"
@@ -50,12 +53,12 @@ The HEVC/HDR10 fallback mechanism is **strictly isolated to Dolby Vision Profile
 ```kotlin
 val fallbackToHdr10 = (srcDvProfile == 7) || srcStripDV
 ```
-* **For Profile 7:** Dual-layer Profile 7 files (FEL/MEL) automatically trigger fallback to standard HEVC/HDR10 with on-the-fly NAL 62/63 stripping, ensuring crisp video playback on Fire TV without black screens.
+* **For Profile 7:** Dual-layer Profile 7 files (FEL/MEL) automatically trigger fallback to standard HEVC/HDR10 with high-performance zero-allocation NAL 62/63 stripping, ensuring smooth video playback on Fire TV without black screens or GC frame drops.
 * **For Profile 5 and 8:** The fallback is bypassed (unless explicitly forced via `srcStripDV`), so single-layer Dolby Vision files play natively in Dolby Vision.
 
 ### How the Fallback Works Under the Hood:
 1. **Decoder Exclusions:** The client player intercepts the decoder selection pipeline inside [`PlayerFactory.kt`](file:///n:/AI/ai_coder/BitStreamer/client/app/src/main/java/com/bitstreamer/client/playback/PlayerFactory.kt#L113-L200), maps the track MIME type from `video/dolby-vision` to `video/hevc`, clears the Dolby Vision `codecs` metadata, and **excludes all hardware Dolby Vision decoders** (filtering out any decoder containing `"dolby"` or `"dovi"`). This forces the device to bind a standard HEVC/HDR10 hardware decoder.
-2. **On-the-Fly NAL Stripping:** As the stream plays, [`PlayerActivity.kt`](file:///n:/AI/ai_coder/BitStreamer/client/app/src/main/java/com/bitstreamer/client/ui/PlayerActivity.kt) intercepts incoming video packets (`onQueueInputBuffer`) and uses a custom real-time **Annex B parser** to strip NAL units of type `62` (RPU) and `63` (EL) before they reach the hardware decoder. This delivers a clean HEVC/HDR10 stream to the standard decoder, preventing the display chip from switching the TV into Dolby Vision mode (which causes the black screen).
+2. **High-Performance Zero-Allocation NAL Stripping:** As the stream plays, [`PlayerFactory.kt`](file:///n:/AI/ai_coder/BitStreamer/client/app/src/main/java/com/bitstreamer/client/playback/PlayerFactory.kt#L269-L455) intercepts incoming video packets (`onQueueInputBuffer`) and uses a custom real-time **Annex B parser** with in-place array shifting (`System.arraycopy`) to strip NAL units of type `62` (RPU) and `63` (EL) without allocating heap buffers. This delivers a clean HEVC/HDR10 stream to the standard decoder with zero GC overhead, preventing the display chip from switching the TV into Dolby Vision mode (which causes the black screen).
 
 ---
 

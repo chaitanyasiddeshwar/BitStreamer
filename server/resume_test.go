@@ -5,86 +5,94 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func getPosition(t *testing.T, url string) int64 {
+func getPosition(t *testing.T, a *app, fileQuery string) int64 {
 	t.Helper()
-	resp, err := http.Get(url + "/position")
-	if err != nil {
-		t.Fatal(err)
+	q := ""
+	if fileQuery != "" {
+		q = "?" + fileQuery
 	}
-	defer resp.Body.Close()
+	req := httptest.NewRequest("GET", "/position"+q, nil)
+	rec := httptest.NewRecorder()
+	a.handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /position status = %d", rec.Code)
+	}
 	var out struct {
 		PositionMs int64 `json:"positionMs"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
 	return out.PositionMs
 }
 
-func postPosition(t *testing.T, url string, ms string) int {
+func postPosition(t *testing.T, a *app, ms string, extraQuery string) int {
 	t.Helper()
-	resp, err := http.Post(url+"/position?ms="+ms, "text/plain", strings.NewReader(""))
-	if err != nil {
-		t.Fatal(err)
+	q := "ms=" + ms
+	if extraQuery != "" {
+		q += "&" + extraQuery
 	}
-	resp.Body.Close()
-	return resp.StatusCode
+	req := httptest.NewRequest("POST", "/position?"+q, nil)
+	rec := httptest.NewRecorder()
+	a.handler().ServeHTTP(rec, req)
+	return rec.Code
 }
 
 func TestResumePositionRoundTrip(t *testing.T) {
 	a, _ := newTestApp(t)
-	srv := httptest.NewServer(a.handler())
-	defer srv.Close()
 
-	if got := getPosition(t, srv.URL); got != 0 {
+	if got := getPosition(t, a, ""); got != 0 {
 		t.Errorf("initial position = %d, want 0", got)
 	}
-	if code := postPosition(t, srv.URL, "90000"); code != http.StatusNoContent {
+	if code := postPosition(t, a, "90000", ""); code != http.StatusNoContent {
 		t.Fatalf("POST status = %d, want 204", code)
 	}
-	if got := getPosition(t, srv.URL); got != 90000 {
+	if got := getPosition(t, a, ""); got != 90000 {
 		t.Errorf("position after store = %d, want 90000", got)
 	}
 	// ms=0 clears the resume point (playback finished).
-	if code := postPosition(t, srv.URL, "0"); code != http.StatusNoContent {
+	if code := postPosition(t, a, "0", ""); code != http.StatusNoContent {
 		t.Fatalf("POST clear status = %d, want 204", code)
 	}
-	if got := getPosition(t, srv.URL); got != 0 {
+	if got := getPosition(t, a, ""); got != 0 {
 		t.Errorf("position after clear = %d, want 0", got)
 	}
 	// Invalid values rejected.
-	if code := postPosition(t, srv.URL, "-5"); code != http.StatusBadRequest {
+	if code := postPosition(t, a, "-5", ""); code != http.StatusBadRequest {
 		t.Errorf("negative ms status = %d, want 400", code)
 	}
-	if code := postPosition(t, srv.URL, "abc"); code != http.StatusBadRequest {
+	if code := postPosition(t, a, "abc", ""); code != http.StatusBadRequest {
 		t.Errorf("non-numeric ms status = %d, want 400", code)
 	}
 }
 
-func TestResumeStorePersistsAndClearsOnNewFile(t *testing.T) {
+func TestResumeStorePersistsAndRetainsMultipleFiles(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "resume.json")
 
-	rs := newResumeStore(path, "C:\\Movies\\film-a.mkv")
-	rs.set("192.168.1.50", 120000)
+	rs := newResumeStore(path)
+	rs.set("192.168.1.50", "film-a.mkv", 120000)
 
 	// Same file on reload: position survives (server restart).
-	rs2 := newResumeStore(path, "C:\\Movies\\film-a.mkv")
-	if got := rs2.get("192.168.1.50"); got != 120000 {
+	rs2 := newResumeStore(path)
+	if got := rs2.get("192.168.1.50", "film-a.mkv"); got != 120000 {
 		t.Errorf("position after reload = %d, want 120000", got)
 	}
 	// Unknown client: nothing.
-	if got := rs2.get("192.168.1.99"); got != 0 {
+	if got := rs2.get("192.168.1.99", "film-a.mkv"); got != 0 {
 		t.Errorf("unknown client position = %d, want 0", got)
 	}
 
-	// Different file: stale positions cleared.
-	rs3 := newResumeStore(path, "C:\\Movies\\film-b.mkv")
-	if got := rs3.get("192.168.1.50"); got != 0 {
-		t.Errorf("position after file switch = %d, want 0", got)
+	// Multiple files retained in store simultaneously.
+	rs2.set("192.168.1.50", "film-b.mkv", 45000)
+	rs3 := newResumeStore(path)
+	if got := rs3.get("192.168.1.50", "film-a.mkv"); got != 120000 {
+		t.Errorf("film-a position = %d, want 120000", got)
+	}
+	if got := rs3.get("192.168.1.50", "film-b.mkv"); got != 45000 {
+		t.Errorf("film-b position = %d, want 45000", got)
 	}
 }

@@ -129,6 +129,19 @@ jobs:
           output_dir: dist
           build_html: false
 
+      - name: Organize PDF for Release
+        run: |
+          if [ -f "dist/docs/USER_MANUAL.pdf" ]; then
+            mv dist/docs/USER_MANUAL.pdf dist/USER_MANUAL.pdf
+            rm -rf dist/docs
+          elif [ -f "pdf/USER_MANUAL.pdf" ]; then
+            mv pdf/USER_MANUAL.pdf dist/USER_MANUAL.pdf
+          elif [ -f "docs/USER_MANUAL.pdf" ]; then
+            mv docs/USER_MANUAL.pdf dist/USER_MANUAL.pdf
+          fi
+          echo "Contents of dist:"
+          ls -la dist/
+
       - name: Create Release Zip
         run: |
           cd dist
@@ -143,6 +156,7 @@ jobs:
         with:
           files: |
             bitstreamer-${{ github.ref_name }}.zip
+            dist/USER_MANUAL.pdf
           draft: false
           prerelease: false
           generate_release_notes: true

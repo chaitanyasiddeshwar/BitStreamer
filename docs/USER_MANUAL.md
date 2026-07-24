@@ -5,12 +5,13 @@ Welcome to BitStreamer! This manual covers everything you need to know to set up
 ---
 
 ## 1. Overview
-BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site for this. You can build and run the whole code from your local machine if you have the right tools.
+BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **single file or multi-folder** local network media **streamer** with it's own lightweight **client App** that can be **sideloaded into FireTV**. You can find both the server and the client code in the github sources and the binaries in the release. It uses the native Exoplayer and supports bitstreaming of Audio codecs including Dolby TrueHD, Dolby Atmos and DTS-HD (only DTS core because of FireTV limitations). The server also serves the client APK to be used from Downloader app in FireTV for sideloading. No need to connect to external site for this. You can build and run the whole code from your local machine if you have the right tools.
 - **The Server** (run on your PC/Mac/Linux box) serves your media file byte-for-byte over HTTP plus the client apk. It also supports generation of Chapter and seek-bar thumbnails/preview (like in netflix/youtube) if you have ffmpeg and ffprobe executibles in the path or the same folder as server (see [Chapters & Scrubbing Previews](#chapters--scrubbing-previews-optional) below). Also supports external subtitles with same filename as the movie file.
 - **The Client** (run on your Fire TV) discovers the server automatically, plays the file with hardware video decoding, and bitstreams the audio untouched over HDMI to your TV/AV receiver. It also has corresponding features to the server like chapter thumbnails, seek-bar thumbnails depending on whether server has ffmpeg/ffprobe in the PATH/dir.
+Remember to press the **Menu (≡)** in different places in the app to see options
 
 **Note:** 
-* Folder support is fully completed and stable! You can run the server on a folder of files or a drive root to browse, play videos, run slideshows of images, view chapters, and resume playback per file directly from the Fire TV client.
+* Folder support is fully completed with v1.5.0! You can run the server on a single folder, a drive root, or **multiple directories simultaneously** (`bitstreamer.exe "C:\Movies" "D:\TV Shows"`) to browse, select root directories, play videos, run slideshows of images, view chapters, and resume playback per file directly from the Fire TV client.
 * Also check [Known Issues](#5-known-issues) below to know what the Hardware itself doesn't support.
 * This is untested on Nvidia Shield but might work there since it is built for Android TV - if someone does, let me know how it goes.
 
@@ -19,21 +20,22 @@ BitStreamer is a Free, open-source, extremely lightweight, zero-transcode **sing
 ## 2. Server Setup & Usage
 
 ### Running the Server
-On your PC, open a command prompt/terminal and run the server by passing either a single media file or a folder directory:
+On your PC, open a command prompt/terminal and run the server by passing either a single media file, a folder directory, or multiple folder directories:
 
 ```bash
 # Windows
 bitstreamer.exe "C:\Movies\your-movie.mkv"             # Single-file mode
-bitstreamer.exe "C:\Movies"                            # Folder mode
+bitstreamer.exe "C:\Movies"                            # Folder mode (single folder)
 bitstreamer.exe "D:\"                                  # Serve a drive root
+bitstreamer.exe "C:\Movies" "D:\TV Shows" "E:\Videos"   # Multi-folder mode (multiple roots)
 
 # macOS
 ./bitstreamer-macos "/Volumes/Movies/your-movie.mkv"   # Single-file mode
-./bitstreamer-macos "/Volumes/Movies"                  # Folder mode
+./bitstreamer-macos "/Volumes/Movies" "/Volumes/TV"    # Multi-folder mode
 
 # Linux
 ./bitstreamer-linux "/path/to/your-movie.mkv"          # Single-file mode
-./bitstreamer-linux "/path/to/your-movies"             # Folder mode
+./bitstreamer-linux "/path/to/movies" "/path/to/tv"    # Multi-folder mode
 ```
 The server will print:
 - Your local network IP addresses
@@ -50,10 +52,11 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 ### Advanced Server Options
 - `--port 46898`: Set a custom port for the HTTP server.
 - `--name "MyServer"`: Set a custom display name announced to clients.
-- `--interval 30`: Set the scrubbing-preview interval in seconds (default: 30). Also sets the seek-bar step size on the client.
+- `--interval 30`: Set the scrubbing-preview interval in seconds (default: 30, automatically reduces to 10 for videos under 10 minutes).
 - `-stripdv`: Forces client-side Annex B stripping of Dolby Vision metadata to fallback to HDR10 (only applies to Profile 7 files).
-- `-skip-previews`: Skips generating the storyboard seek-bar preview sprites at startup (saves startup CPU/time).
-- `--keep-cache`: Do not delete thumbnails and scrub preview cache when stopping the server (makes subsequent starts faster).
+- `-skip-previews`: Skips generating the storyboard seek-bar preview sprites at startup.
+- `--no-caching`: Disables persistent disk caching of metadata and thumbnails in `cache/`.
+- `--keep-cache`: Legacy option to preserve thumbnail and preview cache when stopping the server.
 
 ### HDR & Dolby Vision Playback Behavior
 
@@ -66,7 +69,7 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 | **Dolby Vision Profile 5** | ✅ Yes | Direct native playback (IPTPQc2 colorspace). |
 | **Dolby Vision Profile 8.1** | ✅ Yes | Direct native playback (even if file also carries HDR10+ metadata, e.g. *Ford v Ferrari*). |
 | **Dolby Vision Profile 7 MEL** | ✅ Yes | Direct native playback of the base layer which is a standard HDR10/HDR10+ stream. |
-| **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays perfectly using our on-the-fly Annex B NAL stripping fallback (`-stripdv` server flag or `Strip DV and Play` client menu option). |
+| **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays using our zero-allocation NAL stripping (`Strip DV and Play` / `-stripdv`), or `Convert to DV8 and Play` option. |
 
 
 ---
@@ -74,6 +77,21 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 ## 3. Client Installation & Usage
 
 ### Installing the Android TV Client
+
+#### Method 1: Command Line via ADB (Fastest)
+If you have `adb` installed on your PC and ADB Debugging enabled on your Fire TV (*Settings -> My Fire TV -> Developer Options -> ADB Debugging -> ON*):
+*(Tip: Find your Fire TV's IP address under **Settings -> My Fire TV -> About -> Network**)*.
+1. Run `install-client.bat` from the command line or double-click it in Windows Explorer:
+   ```cmd
+   install-client.bat 192.168.1.50
+   ```
+2. Or use standard ADB commands directly:
+   ```cmd
+   adb connect 192.168.1.50:5555
+   adb install -r client.apk
+   ```
+
+#### Method 2: Downloader App on Fire TV
 1. On your Fire TV, search for and install the **Downloader** app from the Amazon Appstore.
 2. Open Downloader and enter the APK URL printed by your server (e.g., `http://192.168.1.20:46898/client.apk`).
 3. Download and install the APK. *(Note: You will need to allow Downloader to "Install unknown apps" in Fire TV Settings).*
@@ -81,21 +99,23 @@ netsh advfirewall firewall add rule name="BitStreamer Discovery" dir=in action=a
 ### Playing Media
 1. Launch **BitStreamer** on your Fire TV.
 2. The app will search for servers on the local network. Select the found server.
-3. If the server is not found automatically, enter your PC's IP address manually in the input box at the bottom.
+3. In Multi-Folder mode, select your desired root folder from the Root Selection screen.
+4. If the server is not found automatically, enter your PC's IP address manually in the input box at the bottom.
 
 ### Remote Control Mapping
 * **List Navigation Mode:**
-  * **Center / OK**: Enter directory or start file playback.
+  * **Center / OK**: Enter directory, select root, or start file playback.
   * **Back**: Go back up one directory level (retains selection memory).
-  * **Menu (≡)**: Open context menu (`Play Normally` / `Strip DV and Play`) on Dolby Vision files.
+  * **Menu (≡)**: Open context menu (`Play Normally`, `Strip DV and Play`, `Convert to DV8 and Play`, `Generate Seekbar Previews`).
 * **Video Playback Mode:**
   * **Center / Play-Pause Button**: Play or pause the video.
   * **D-pad Left / Right**: Jump backwards/forwards by one preview interval (default: 30s) and show the scrubbing preview frame.
   * **Rewind / Fast Forward Buttons**: Jump to the previous or next chapter directly (falls back to standard seek if no chapters).
   * **D-pad Up**: Focus and display the seek bar.
   * **D-pad Down**: Open the options menu (Audio, Subtitles, Chapters, Stats).
+  * **Previews Button (Film Strip Icon)**: Trigger on-demand seek-bar preview generation with real-time progress bar UI.
   * **Menu Button**: Toggle the **Stats for Nerds** overlay (including dynamic real-time bandwidth).
-  * **Back Button**: Hide controls or exit playback.
+  * **Back Button**: Hide controls or exit playback (prevented during preview generation).
 * **Image Playback Mode:**
   * Plays each image for **5 seconds** and auto-advances.
   * **Center Button**: Pause or resume the slideshow auto-advance.
@@ -122,9 +142,10 @@ To ensure raw compressed audio is handed directly to your soundbar/receiver:
 
 ### Chapters & Scrubbing Previews (Optional)
 To enable visual chapter markers and Netflix-style scrubbing previews:
-1. Download `ffmpeg` and `ffprobe` binaries.
+1. Download `ffmpeg` and `ffprobe` binaries [link](https://www.gyan.dev/ffmpeg/builds).
 2. Place `ffmpeg.exe` and `ffprobe.exe` (or your OS equivalents) in the same directory as the `bitstreamer` server executable, or put them on your system's `PATH`.
-3. The server will automatically generate chapter thumbnails and storyboard images at startup.
+3. Chapter thumbnails are generated server-side.
+4. **Seekbar previews** are on-demand: request preview generation either from the file launch menu (`Generate Seekbar Previews` checkbox) or in-player via the **Previews** (film strip) control button. A progress bar overlay tracks progress on-screen, automatically pausing playback until generation completes.
 
 ---
 
@@ -139,7 +160,8 @@ To enable visual chapter markers and Netflix-style scrubbing previews:
 - **Issue:** When attempting to play a Dolby Vision **Profile 7 FEL** (Full Enhancement Layer) dual-layer video track (commonly found on 4K UHD Blu-ray REMUX files), the audio plays perfectly but the **screen remains black**.
 - **Cause:** Dual-layer Profile 7 files contain a Base Layer (HDR10 compatible) plus a Full Enhancement Layer (FEL) containing actual picture residual details. The Fire TV's hardware Dolby Vision decoder cannot decode the enhancement layer and stalls. (Note: Profile 7 **MEL** or Profile 8 files play natively as Dolby Vision without issues).
 - **Workaround:** 
-  * **On-the-Fly:** Use the `-stripdv` server-side flag, or press the **Menu (≡)** button on the remote while the file is selected in the list and choose `Strip DV and Play` to decode the stream on the fly as standard HEVC/HDR10.
+  * **On-the-Fly NAL Stripping:** Use the `-stripdv` server-side flag, or press **Menu (≡)** on the remote in the list view and choose `Strip DV and Play` to decode the stream on the fly as standard HEVC/HDR10 with zero-allocation high-performance NAL stripping.
+  * **On-the-Fly DolbyVision 8 Conversion:** Press **Menu (≡)** on the remote and choose `Convert to DV8 and Play` to remap the Dolby Vision metadata to Profile 8 on the fly.
   * **Offline Conversion:** You can losslessly strip the Dolby Vision enhancement layer and metadata offline to leave the standard HDR10 base layer. When you select a Profile 7 file, the server will print a ready-to-run `ffmpeg` command in the console:
     ```bash
     ffmpeg -i "Movie.mkv" -map 0 -c copy -bsf:v "filter_units=remove_types=62|63" "Movie_no_dv.mkv"
