@@ -697,7 +697,7 @@ class PlayerActivity : Activity() {
                     if (sb != null) enableStoryboard(sb)
                     thumbnailLoader?.release()
                     thumbnailLoader = ChapterThumbnailLoader(baseUrl, infoPath.ifEmpty { null }, rootIndex)
-                    player?.playWhenReady = true
+                    player?.playWhenReady = false
                 }
                 return@Thread
             }
@@ -723,7 +723,7 @@ class PlayerActivity : Activity() {
                             if (sb != null) enableStoryboard(sb)
                             thumbnailLoader?.release()
                             thumbnailLoader = ChapterThumbnailLoader(baseUrl, infoPath.ifEmpty { null }, rootIndex)
-                            player?.playWhenReady = true
+                            player?.playWhenReady = false
                         }
                         break
                     }
@@ -1000,6 +1000,9 @@ class PlayerActivity : Activity() {
             error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (previewProgressOverlay?.visibility == View.VISIBLE && event.keyCode == KeyEvent.KEYCODE_BACK) {
+            return true
+        }
         // Menu (remote's ≡ button) toggles the stats-for-nerds overlay.
         if (event.keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN) {
             toggleStats()
@@ -1067,6 +1070,14 @@ class PlayerActivity : Activity() {
             }
         }
         return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+    override fun onBackPressed() {
+        if (previewProgressOverlay?.visibility == View.VISIBLE) {
+            return
+        }
+        super.onBackPressed()
     }
 
     private fun logTracks(tracks: Tracks) {
