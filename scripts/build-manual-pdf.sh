@@ -47,7 +47,33 @@ if command -v cygpath >/dev/null 2>&1; then
   udd="$(cygpath -w "$user_data_dir")"
 fi
 udd_json="${udd//\\/\\\\}"
-launch_opts="{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\"],\"userDataDir\":\"${udd_json}\"}"
+
+# Prefer a browser already installed on the machine. GitHub runners ship
+# google-chrome with all its shared libraries, so pointing Puppeteer at it lets
+# us skip its own Chromium download — the usual CI failure point (a missing/
+# broken bundled Chromium or a blocked postinstall download). Locally, where no
+# system Chrome is on PATH, we fall through and let Puppeteer use its bundled one.
+chrome_bin="${PUPPETEER_EXECUTABLE_PATH:-}"
+if [ -z "$chrome_bin" ]; then
+  for c in google-chrome google-chrome-stable chromium chromium-browser; do
+    if command -v "$c" >/dev/null 2>&1; then chrome_bin="$(command -v "$c")"; break; fi
+  done
+fi
+exec_json=""
+if [ -n "$chrome_bin" ]; then
+  # Don't download Chromium during the npx install; we'll use the system one.
+  export PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+  cb_json="${chrome_bin//\\/\\\\}"
+  exec_json=",\"executablePath\":\"${cb_json}\""
+fi
+
+launch_opts="{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\"],\"userDataDir\":\"${udd_json}\"${exec_json}}"
+
+echo "node:   $(node --version 2>/dev/null || echo '?')"
+echo "npx:    $(npx --version 2>/dev/null || echo '?')"
+echo "chrome: ${chrome_bin:-<puppeteer bundled Chromium>}"
+echo "in:     $IN"
+echo "out:    $OUT"
 
 npx --yes "md-to-pdf@${MD_TO_PDF_VERSION}" "$IN" \
   "${style_arg[@]}" \
