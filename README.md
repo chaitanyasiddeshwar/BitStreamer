@@ -33,7 +33,7 @@ sweet spot. Supported extensions:
 | **Dolby Vision Profile 5** | ✅ Yes | Direct native playback (IPTPQc2 colorspace). |
 | **Dolby Vision Profile 8.1** | ✅ Yes | Direct native playback (even if file also carries HDR10+ metadata, e.g. *Ford v Ferrari*). |
 | **Dolby Vision Profile 7 MEL** | ✅ Yes | Direct native playback of the base layer which is a standard HDR10 or HDR10+ stream). |
-| **Dolby Vision Profile 7 FEL** | ❌ No | **Audio plays, video remains black.** Fire TV hardware cannot decode dual-layer FEL. Plays using our real-time high-performance zero-allocation NAL stripping fallback (`Strip DV and Play` / `-stripdv`), or `Convert to DV8 and Play` option. |
+| **Dolby Vision Profile 7 FEL** | ✅ Yes | Fire TV hardware cannot decode dual-layer FEL. Bitstreamer supports it using NAL stripping fallback (`Strip DV and Play` / `-stripdv`), or `Convert to DV8 and Play` option. |
 
 Two cases get a specific printed fix instead:
 - **`.m2ts`/`.mts`** (Blu-ray transport streams) — ExoPlayer can't parse their 192-byte
