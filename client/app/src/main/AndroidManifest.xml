@@ -7,6 +7,15 @@
     <!-- Some Android builds drop UDP broadcast/multicast unless a MulticastLock is held. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- Android 11+ package visibility: lets the Zidoo hand-off (Player: Zidoo setting)
+         see the Zidoo player. Harmless on Fire TV, where these packages don't exist. -->
+    <queries>
+        <package android:name="com.zidoo.player" />
+        <package android:name="com.android.gallery3d" />
+        <package android:name="com.zidoo.control.center" />
+        <package android:name="com.zidoo.poster" />
+    </queries>
+
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
@@ -37,6 +46,12 @@
 
         <activity
             android:name=".ui.PlayerActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
+            android:name=".ui.ExternalPlaybackActivity"
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />

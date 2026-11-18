@@ -33,6 +33,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.DefaultTimeBar
@@ -139,6 +141,52 @@ class PlayerActivity : Activity() {
     // frees up within a few seconds, so we re-prepare with backoff instead of
     // wedging in IDLE. See docs/AUDIO_PASSTHROUGH.md.
     private var audioRetryCount = 0
+    // Non-Fire-TV only: a DV Profile 7 file whose DV decode fails is retried
+    // once as HDR10 (DV stripped) instead of ending on an error screen.
+    private var dvHdr10FallbackTried = false
+
+    // Diagnostics for "stuck spinner after pause" (Fire TV, big remuxes): while
+    // BUFFERING, log a snapshot every 5 s (buffer, loading flag, bytes received)
+    // so the cause shows in the server's client log. Logging only.
+    private var bufferingSinceMs = 0L
+    private var lastStallBytes = 0L
+    private var stallRecoveries = 0
+    private val stallWatchdog = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (p.playbackState != Player.STATE_BUFFERING) return
+            val bytes = PlayerFactory.getTotalBytesTransferred()
+            val stalledMs = android.os.SystemClock.elapsedRealtime() - bufferingSinceMs
+            val v = (p as? androidx.media3.exoplayer.ExoPlayer)?.videoDecoderCounters
+            val a = (p as? androidx.media3.exoplayer.ExoPlayer)?.audioDecoderCounters
+            v?.ensureUpdated(); a?.ensureUpdated()
+            RemoteLog.d(TAG, "STALL ${stalledMs / 1000}s: " +
+                "pos=${p.currentPosition} buffered=${p.bufferedPosition} totalBuffered=${p.totalBufferedDuration}ms " +
+                "isLoading=${p.isLoading} playWhenReady=${p.playWhenReady} " +
+                "bytes+${bytes - lastStallBytes} (total $bytes) " +
+                "video[queued=${v?.queuedInputBufferCount} rendered=${v?.renderedOutputBufferCount} dropped=${v?.droppedBufferCount} skipped=${v?.skippedOutputBufferCount}] " +
+                "audio[queued=${a?.queuedInputBufferCount} rendered=${a?.renderedOutputBufferCount}]")
+            lastStallBytes = bytes
+            mainHandler.removeCallbacks(this)
+            // Auto-recovery: stuck with plenty of data buffered and nothing
+            // loading is a renderer that didn't restart after pause, not the
+            // network. A seek to the same spot resets the renderers (what the
+            // owner did by hand). At most twice per stall.
+            // Seek 1 s back: a seek to the exact current position is a no-op in
+            // ExoPlayer (verified 18:41 — the stuck passthrough AudioTrack stayed
+            // stuck). Moving the position flushes the sink and recreates the
+            // AudioTrack, which is what the owner's manual seek did.
+            if (stalledMs >= 3_000 && !p.isLoading && p.totalBufferedDuration >= 3_000 && stallRecoveries < 2) {
+                stallRecoveries++
+                val target = (p.currentPosition - 1_000).coerceAtLeast(0)
+                RemoteLog.d(TAG, "STALL auto-recover #$stallRecoveries: seekTo($target) from ${p.currentPosition}")
+                p.seekTo(target)
+            }
+            mainHandler.postDelayed(this, 5_000)
+        }
+    }
+    private var currentUrl = ""
+    private var currentResumeMs = 0L
     private val retryPlayback = Runnable {
         val p = player ?: return@Runnable
         RemoteLog.d(TAG, "re-preparing after audio-device error (attempt $audioRetryCount)")
@@ -377,6 +425,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun initializePlayer(url: String, resumeMs: Long) {
+        currentUrl = url
+        currentResumeMs = resumeMs
         errorView.visibility = View.GONE
         audioRetryCount = 0
         RemoteLog.d(TAG, "opening $url (stored resume position: ${resumeMs}ms)")
@@ -473,6 +523,34 @@ class PlayerActivity : Activity() {
                 RemoteLog.d(TAG, "audio sink error: ${Log.getStackTraceString(audioSinkError)}")
             }
 
+            override fun onPlayWhenReadyChanged(eventTime: AnalyticsListener.EventTime, playWhenReady: Boolean, reason: Int) {
+                val p = player
+                RemoteLog.d(TAG, "${if (playWhenReady) "PLAY" else "PAUSE"} (reason $reason) pos=${p?.currentPosition} " +
+                    "buffered=${p?.bufferedPosition} totalBuffered=${p?.totalBufferedDuration}ms state=${p?.playbackState}")
+            }
+
+            override fun onPositionDiscontinuity(
+                eventTime: AnalyticsListener.EventTime,
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    RemoteLog.d(TAG, "SEEK ${oldPosition.positionMs} -> ${newPosition.positionMs}")
+                }
+            }
+
+            override fun onLoadError(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+                error: java.io.IOException,
+                wasCanceled: Boolean,
+            ) {
+                RemoteLog.d(TAG, "LOAD ERROR (canceled=$wasCanceled) after ${loadEventInfo.loadDurationMs}ms " +
+                    "${loadEventInfo.bytesLoaded}B: ${error.javaClass.simpleName}: ${error.message} cause=${error.cause}")
+            }
+
             override fun onAudioUnderrun(
                 eventTime: AnalyticsListener.EventTime,
                 bufferSize: Int,
@@ -494,6 +572,7 @@ class PlayerActivity : Activity() {
                     return
                 }
                 RemoteLog.d(TAG, "player error ${error.errorCodeName}: ${Log.getStackTraceString(error)}")
+                if (tryDvHdr10Fallback(error)) return
                 showError(error)
             }
 
@@ -510,6 +589,13 @@ class PlayerActivity : Activity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 RemoteLog.d(TAG, "playback state: $playbackState")
+                mainHandler.removeCallbacks(stallWatchdog)
+                if (playbackState == Player.STATE_READY) stallRecoveries = 0
+                if (playbackState == Player.STATE_BUFFERING) {
+                    bufferingSinceMs = android.os.SystemClock.elapsedRealtime()
+                    lastStallBytes = PlayerFactory.getTotalBytesTransferred()
+                    mainHandler.postDelayed(stallWatchdog, 3_000)
+                }
                 if (playbackState == Player.STATE_READY) {
                     // Recovered (or a clean start): drop the retry budget and any
                     // stale error banner from a prior failed attempt.
@@ -1044,8 +1130,41 @@ class PlayerActivity : Activity() {
         else String.format("%d:%02d", m, s)
     }
 
+    /**
+     * DV Profile 7 decode failed on a non-Fire-TV device (seen on Zidoo/Amlogic):
+     * retry once with STRIP_HDR10 so the film plays in HDR10 rather than not at
+     * all. Fire TV never takes this path (its P7 handling is unchanged).
+     */
+    private fun tryDvHdr10Fallback(error: PlaybackException): Boolean {
+        if (dvHdr10FallbackTried || srcStripDV || srcDvProfile != 7) return false
+        if (com.bitstreamer.client.playback.DtsCoreAudioSink.isFireTv()) return false
+        val decodeError = error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+        if (!decodeError) return false
+        dvHdr10FallbackTried = true
+        val dialogWasShowing = resumeDialog?.isShowing == true
+        resumeDialog?.dismiss()
+        resumeDialog = null
+        val pos = player?.currentPosition ?: 0L
+        RemoteLog.d(TAG, "DV P7 decode failed (plan=$dvPlan); retrying once as HDR10 (DV stripped) " +
+            "at ${if (dialogWasShowing) "resume prompt" else "${pos}ms"}")
+        android.widget.Toast.makeText(this, "Dolby Vision 7 not supported here — playing as HDR10", android.widget.Toast.LENGTH_LONG).show()
+        releasePlayer()
+        srcStripDV = true
+        mainHandler.post {
+            if (isFinishing) return@post
+            initializePlayer(currentUrl, if (dialogWasShowing) currentResumeMs else 0L)
+            if (!dialogWasShowing && pos > 0) player?.seekTo(pos)
+        }
+        return true
+    }
+
     private fun releasePlayer() {
         mainHandler.removeCallbacks(retryPlayback)
+        mainHandler.removeCallbacks(stallWatchdog)
         playerView.player = null
         player?.release()
         player = null

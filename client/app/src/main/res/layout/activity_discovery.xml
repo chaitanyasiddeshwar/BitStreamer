@@ -83,5 +83,14 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:text="@string/rescan" />
+
+        <!-- Player choice (Internal / Zidoo). Saved across sessions; only
+             switchable on devices with a Zidoo player (never on Fire TV). -->
+        <Button
+            android:id="@+id/player_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="@string/player_internal" />
     </LinearLayout>
 </LinearLayout>

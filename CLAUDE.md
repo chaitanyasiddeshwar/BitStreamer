@@ -31,6 +31,8 @@ Key docs:
 - `docs/MEDIA3.md` — what Media3 is, which of its features we use, and the vetted menu of
   features we could adopt (with passthrough-hazard warnings)
 - `docs/REMOTE.md` — Fire TV remote buttons/keycodes, what's mappable, and the player's key map
+- `docs/ZIDOO_EXTERNAL_PLAYER.md` — plan for handing playback to the Zidoo's native player
+  (setting on the first screen, resume sync); Fire TV behaviour must stay unchanged
 - `docs/THUMBNAILS.md` — chapter thumbnails + scrubbing storyboard (ffmpeg sidecar, HDR tonemapping)
 
 ## Tech stack (decided — see PROJECT_PLAN.md for rationale)

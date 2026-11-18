@@ -20,6 +20,7 @@ import android.widget.ListView
 import android.widget.TextView
 import com.bitstreamer.client.R
 import com.bitstreamer.client.discovery.ServerApi
+import com.bitstreamer.client.settings.PlayerSettings
 import java.util.Locale
 
 /**
@@ -201,37 +202,47 @@ class BrowserActivity : Activity() {
         }
         container.addView(cbPreviews)
 
-        val options = if (isDv) {
-            arrayOf(
-                "Play Normally",
-                "Strip DV and Play",
-                "Convert to DV8 and Play"
-            )
-        } else {
-            arrayOf(
-                "Play Normally"
-            )
+        // The DV options are BitStreamer-player features, so they always use the
+        // internal player. On a Zidoo the menu also offers the player that the
+        // first-screen setting does NOT select, for quick A/B comparisons.
+        val genPreviews = { cbPreviews.isChecked && storyboardAvailable }
+        val options = mutableListOf<Pair<String, () -> Unit>>()
+        // "Play Normally" is an explicit NATIVE override (no DV processing),
+        // distinct from a plain click which lets playback auto-decide. On a Zidoo
+        // the menu adds "Play in BitStreamer player" = the internal player with
+        // automatic DV handling, and keeps "Play Normally" for DV files only.
+        val externalAvailable = PlayerSettings.externalAvailable(this)
+        if (externalAvailable) {
+            options.add("Play in BitStreamer player" to {
+                playFile(entry, generatePreviews = genPreviews(), player = PlayerSettings.Mode.INTERNAL)
+            })
+        }
+        if (!externalAvailable || isDv) {
+            options.add((if (externalAvailable) "Play Normally (no DV processing)" else "Play Normally") to {
+                playFile(entry, playNative = true, generatePreviews = genPreviews(), player = PlayerSettings.Mode.INTERNAL)
+            })
+        }
+        if (isDv) {
+            options.add("Strip DV and Play" to {
+                playFile(entry, forceStripDv = true, generatePreviews = genPreviews(), player = PlayerSettings.Mode.INTERNAL)
+            })
+            options.add("Convert to DV8 and Play" to {
+                playFile(entry, convertDv8 = true, generatePreviews = genPreviews(), player = PlayerSettings.Mode.INTERNAL)
+            })
+        }
+        if (externalAvailable) {
+            options.add(0, "Play in Zidoo player" to {
+                playFile(entry, player = PlayerSettings.Mode.EXTERNAL)
+            })
         }
 
         var dialog: AlertDialog? = null
 
         val listView = ListView(this)
-        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, options)
+        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, options.map { it.first })
         listView.setOnItemClickListener { _, _, which, _ ->
             dialog?.dismiss()
-            val forceStrip = if (isDv) (which == 1) else false
-            val convertDv8 = if (isDv) (which == 2) else false
-            // "Play Normally" (which == 0) is an explicit NATIVE override, distinct
-            // from a plain click (no menu) which lets playback auto-decide.
-            val playNative = which == 0
-            val genPreviews = cbPreviews.isChecked && storyboardAvailable
-            playFile(
-                entry,
-                forceStripDv = forceStrip,
-                convertDv8 = convertDv8,
-                playNative = playNative,
-                generatePreviews = genPreviews
-            )
+            options.getOrNull(which)?.second?.invoke()
         }
         container.addView(listView)
 
@@ -247,7 +258,8 @@ class BrowserActivity : Activity() {
         forceStripDv: Boolean = false,
         convertDv8: Boolean = false,
         playNative: Boolean = false,
-        generatePreviews: Boolean = false
+        generatePreviews: Boolean = false,
+        player: PlayerSettings.Mode? = null // null = the first-screen setting
     ) {
         val files = entries.filter { !it.isDir }
         val index = files.indexOfFirst { it.name == selected.name }.coerceAtLeast(0)
@@ -259,6 +271,10 @@ class BrowserActivity : Activity() {
             urls.add(api.streamUrlForPath(rel, currentRoot))
             titles.add(f.name)
             infoPaths.add(rel)
+        }
+        if (useExternal(player)) {
+            ExternalPlaybackActivity.start(this, urls[index], titles[index], infoPaths[index], currentRoot)
+            return
         }
         startActivity(Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_FOLDER_MODE, true)
@@ -363,6 +379,10 @@ class BrowserActivity : Activity() {
             titles.add(f.name)
             infoPaths.add(rel)
         }
+        if (!forceStripDv && !generatePreviews && useExternal(null)) {
+            ExternalPlaybackActivity.start(this, urls[index], titles[index], infoPaths[index], currentRoot)
+            return
+        }
         startActivity(Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_FOLDER_MODE, true)
             putExtra(PlayerActivity.EXTRA_URL, urls[index])
@@ -376,6 +396,13 @@ class BrowserActivity : Activity() {
             if (generatePreviews) putExtra(PlayerActivity.EXTRA_GENERATE_PREVIEWS, true)
             currentRoot?.let { putExtra(PlayerActivity.EXTRA_ROOT_INDEX, it) }
         })
+    }
+
+    /** External (Zidoo) only when asked for, or when the first-screen setting says so and it's available. */
+    private fun useExternal(player: PlayerSettings.Mode?): Boolean = when (player) {
+        PlayerSettings.Mode.EXTERNAL -> true
+        PlayerSettings.Mode.INTERNAL -> false
+        null -> PlayerSettings.effectiveMode(this) == PlayerSettings.Mode.EXTERNAL
     }
 
     // ---- path helpers ----

@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
 import com.bitstreamer.client.R
+import com.bitstreamer.client.settings.PlayerSettings
 import com.bitstreamer.client.discovery.DiscoveryClient
 import com.bitstreamer.client.discovery.ServerApi
 import java.util.Locale
@@ -72,6 +73,33 @@ class DiscoveryActivity : Activity() {
 
         findViewById<Button>(R.id.retry_button).setOnClickListener { scan() }
         findViewById<Button>(R.id.connect_button).setOnClickListener { connectManually() }
+        playerButton = findViewById(R.id.player_button)
+        playerButton.setOnClickListener { togglePlayer() }
+        renderPlayerButton()
+    }
+
+    private lateinit var playerButton: Button
+
+    private fun renderPlayerButton() {
+        val external = PlayerSettings.effectiveMode(this) == PlayerSettings.Mode.EXTERNAL
+        playerButton.setText(if (external) R.string.player_external else R.string.player_internal)
+    }
+
+    /** Flips Internal <-> Zidoo and saves it. A no-op (with a hint) where no Zidoo player exists. */
+    private fun togglePlayer() {
+        if (!PlayerSettings.externalAvailable(this)) {
+            android.widget.Toast.makeText(this, R.string.player_no_external, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val next = if (PlayerSettings.effectiveMode(this) == PlayerSettings.Mode.EXTERNAL)
+            PlayerSettings.Mode.INTERNAL else PlayerSettings.Mode.EXTERNAL
+        PlayerSettings.save(this, next)
+        renderPlayerButton()
+        android.widget.Toast.makeText(
+            this,
+            if (next == PlayerSettings.Mode.EXTERNAL) R.string.player_now_external else R.string.player_now_internal,
+            android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 
     override fun onResume() {
@@ -159,6 +187,8 @@ class DiscoveryActivity : Activity() {
                     putStringArrayListExtra(BrowserActivity.EXTRA_ROOT_NAMES, rootNames)
                 }
             })
+        } else if (PlayerSettings.effectiveMode(this) == PlayerSettings.Mode.EXTERNAL) {
+            ExternalPlaybackActivity.start(this, server.streamUrl, server.file.ifEmpty { server.name }, null, null)
         } else {
             startActivity(Intent(this, PlayerActivity::class.java).apply {
                 putExtra(PlayerActivity.EXTRA_URL, server.streamUrl)

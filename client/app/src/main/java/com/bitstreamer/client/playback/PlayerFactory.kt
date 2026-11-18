@@ -180,7 +180,8 @@ object PlayerFactory {
      * Decide how to play a Dolby Vision source, automatically. **Device-agnostic:**
      * the decision is keyed only on the source DV profile and whether the platform
      * exposes a Dolby Vision decoder ([DvCaps.hasDvDecoder], probed from
-     * MediaCodecList). There are deliberately NO Build.MODEL or decoder-name checks.
+     * MediaCodecList). No Build.MODEL checks; one decoder-name exception: Amlogic
+     * DV decoders get Profile 7 as-is (NATIVE, HDR10 fallback on error; see below).
      *
      * Policy — the superset of what ViMu/Kodi/Emby do, adapted to an ExoPlayer client:
      *  - Profile 5:  NATIVE. Its base layer is proprietary IPTPQc2 (not HDR10), so it
@@ -211,11 +212,24 @@ object PlayerFactory {
         if (userOverride != null) return userOverride
         return when (dvProfile) {
             5 -> DvPlan.NATIVE
-            7 -> if (caps.hasDvDecoder) DvPlan.CONVERT_P8 else DvPlan.STRIP_HDR10
+            // Amlogic DV decoders (Zidoo): the P7->P8.1 conversion shows random
+            // light/dark flashes / black frames (tested 2026-11-18: converted RPUs
+            // were all valid P8, EL removed, codecs relabelled — still flashing).
+            // So hand P7 over as-is: firmware 1.3.45 rejects it and PlayerActivity
+            // retries once as HDR10 (tryDvHdr10Fallback); firmware with FEL support
+            // (1.3.65+) may decode it natively.
+            7 -> when {
+                !caps.hasDvDecoder -> DvPlan.STRIP_HDR10
+                isAmlogicDv(caps) -> DvPlan.NATIVE
+                else -> DvPlan.CONVERT_P8
+            }
             8 -> if (caps.hasDvDecoder) DvPlan.NATIVE else DvPlan.STRIP_HDR10
             else -> DvPlan.NATIVE
         }
     }
+
+    private fun isAmlogicDv(caps: DvCaps): Boolean =
+        caps.dvDecoderName?.lowercase()?.contains("amlogic") == true
 
     fun mapFormat(format: Format, fallbackToHdr10: Boolean): Format {
         if (fallbackToHdr10 && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
@@ -261,7 +275,12 @@ object PlayerFactory {
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
             ): AudioSink? {
-                return DtsCoreAudioSink(DefaultAudioSink.Builder(context).build())
+                // Fire TV: DTS core forced (its DTS-HD path plays silence). Other
+                // devices: direct DTS-HD when the sink advertises it, else core.
+                return DtsCoreAudioSink(
+                    DefaultAudioSink.Builder(context).build(),
+                    preferDirectDtsHd = !DtsCoreAudioSink.isFireTv(),
+                )
             }
 
             override fun buildVideoRenderers(

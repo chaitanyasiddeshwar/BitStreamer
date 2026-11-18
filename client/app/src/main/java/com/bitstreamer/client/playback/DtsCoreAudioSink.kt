@@ -24,13 +24,19 @@ import kotlin.math.min
  * unplayable without this wrapper. See docs/AUDIO_PASSTHROUGH.md §7.
  */
 @OptIn(UnstableApi::class)
-class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
+class DtsCoreAudioSink(
+    sink: AudioSink,
+    /** Use the sink's own DTS-HD path when it advertises one. False on Fire TV (see below). */
+    private val preferDirectDtsHd: Boolean = PREFER_DIRECT_DTS_HD,
+) : ForwardingAudioSink(sink) {
 
     private var stripToCore = false
     private var pendingBuffer: ByteBuffer? = null
     private var warnedNoCore = false
     private var strippedSamples = 0L
     private var consecutiveSkipped = 0
+    private var refusedSinceMs = 0L
+    private var refusalLogged = false
 
     override fun supportsFormat(format: Format): Boolean =
         getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
@@ -57,20 +63,20 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
             val coreFormat = toCoreFormat(inputFormat)
             val coreOk = super.supportsFormat(coreFormat)
             val directOk = super.supportsFormat(inputFormat)
-            if (coreOk && !(directOk && PREFER_DIRECT_DTS_HD)) {
+            if (coreOk && !(directOk && preferDirectDtsHd)) {
                 stripToCore = true
                 RemoteLog.d(
                     TAG,
                     "bitstreaming DTS core for ${inputFormat.sampleMimeType} " +
-                        "(sink advertises DTS-HD: $directOk; Fire TV's DTS-HD path is " +
-                        "unreliable, core extraction forced) -> ${coreFormat.sampleMimeType} " +
+                        "(sink advertises DTS-HD: $directOk; preferDirectDtsHd=$preferDirectDtsHd) -> " +
+                        "${coreFormat.sampleMimeType} " +
                         "${coreFormat.channelCount}ch @${coreFormat.sampleRate}Hz"
                 )
                 super.configure(coreFormat, specifiedBufferSize, outputChannels)
                 return
             }
             if (directOk) {
-                RemoteLog.d(TAG, "direct DTS-HD passthrough (PREFER_DIRECT_DTS_HD enabled)")
+                RemoteLog.d(TAG, "direct DTS-HD passthrough (non-Fire-TV device advertises DTS-HD)")
             }
         }
         stripToCore = false
@@ -116,8 +122,32 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
             pendingBuffer = buffer
         }
         val handled = super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-        if (handled) pendingBuffer = null
+        if (handled) {
+            pendingBuffer = null
+            if (refusedSinceMs != 0L) {
+                val ms = android.os.SystemClock.elapsedRealtime() - refusedSinceMs
+                if (ms >= 1000) RemoteLog.d(TAG, "sink accepting again after ${ms}ms")
+                refusedSinceMs = 0L
+                refusalLogged = false
+            }
+        } else {
+            // Diagnostics: a sink that refuses data for >2 s while playing means
+            // the AudioTrack isn't draining (e.g. passthrough stuck after pause).
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (refusedSinceMs == 0L) refusedSinceMs = now
+            else if (!refusalLogged && now - refusedSinceMs > 2000) {
+                refusalLogged = true
+                RemoteLog.d(TAG, "sink refusing data for ${now - refusedSinceMs}ms " +
+                    "(pendingData=${hasPendingData()} posUs=${getCurrentPositionUs(false)} ptsUs=$presentationTimeUs)")
+            }
+        }
         return handled
+    }
+
+    override fun pause() {
+        refusedSinceMs = 0L
+        refusalLogged = false
+        super.pause()
     }
 
     override fun flush() {
@@ -227,8 +257,12 @@ class DtsCoreAudioSink(sink: AudioSink) : ForwardingAudioSink(sink) {
         // and plays silence (verified on AFTKM / Fire TV Stick 4K Max, and the
         // same is reported for Plex on Fire TV Cube). Only Kodi's IEC-packing
         // hack gets real DTS-HD through. So DTS core extraction is forced even
-        // when the sink claims DTS-HD; flip this only if a device with a
-        // working direct DTS-HD path ever shows up.
+        // when the sink claims DTS-HD. This is the default and what every Amazon
+        // device gets; PlayerFactory passes true on other devices (e.g. Zidoo),
+        // where a sink that advertises DTS-HD is trusted.
         private const val PREFER_DIRECT_DTS_HD = false
+
+        /** Fire TV (Amazon) is the device family with the silent DTS-HD path. */
+        fun isFireTv(): Boolean = android.os.Build.MANUFACTURER.equals("Amazon", ignoreCase = true)
     }
 }

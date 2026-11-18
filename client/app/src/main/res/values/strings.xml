@@ -9,6 +9,11 @@
     <string name="manual_ip_hint">Server IP (e.g. 192.168.1.20)</string>
     <string name="connect">Connect</string>
     <string name="rescan">Rescan</string>
+    <string name="player_internal">Player: BitStreamer</string>
+    <string name="player_external">Player: Zidoo</string>
+    <string name="player_no_external">No Zidoo player on this device — BitStreamer\'s player is used.</string>
+    <string name="player_now_external">Files now open in the Zidoo player (lossless bitstream). Menu key on a file offers the other player.</string>
+    <string name="player_now_internal">Files now open in BitStreamer\'s own player.</string>
     <string name="playback_error">Playback error: %1$s\n%2$s\n\nAudio track: %3$s\nHDMI sink supports: %4$s\n\nPress Back and try another file, or check the Fire TV Surround Sound setting.</string>
     <string name="resume_title">Resume playback?</string>
     <string name="resume_from">Resume from %1$s</string>
