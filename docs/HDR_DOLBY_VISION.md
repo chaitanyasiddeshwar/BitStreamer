@@ -42,7 +42,7 @@ This can be triggered via:
 1. **In-Client Remote Menu (Recommended):** Pressing the **Menu (≡)** key on your remote while a Dolby Vision file is highlighted in single-file or folder list views brings up a selection menu:
    - `Play Normally`: Native Dolby Vision playback.
    - `Strip DV and Play`: Forces HEVC/HDR10 fallback by stripping NAL 62/63 metadata on the fly.
-   - `Convert to DV8 and Play`: Converts Profile 7 / Profile 8 streams on the fly to Dolby Vision Profile 8 using `ExoplayerHdrUtils` 0.3.0 for displays that support Profile 8 but stall on Profile 7 FEL.
+   - `Convert to DV8 and Play`: Converts Profile 7 / Profile 8 streams on the fly to Dolby Vision Profile 8 using `playback/DvP8Converter.kt` (libdovi RPU conversion from `ExoplayerHdrUtils` 0.3.0; frame rebuild, EL drop and `dvhe.08` relabel are ours) for displays that support Profile 8 but stall on Profile 7 FEL.
 2. **Server-side command-line flag:** Launch the server with the `-stripdv` command-line argument:
    ```cmd
    bitstreamer.exe -stripdv "Titanic.mkv"

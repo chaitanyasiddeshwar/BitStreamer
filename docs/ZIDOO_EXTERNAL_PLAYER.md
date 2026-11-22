@@ -1,8 +1,16 @@
 # Zidoo external-player mode — plan
 
-Status (2026-11-18, build 1.0.0-zidoo7): **Phases 1–3 implemented and tested on the Zidoo and
-Fire TV; not committed.** Known limitation: Back from the Zidoo player lands on the Zidoo home
-screen. Branch: `zidoo-external-player`.
+Status (2026-11-22): **Phases 1–3 implemented, tested on the Zidoo (fw 1.3.75) and Fire TV,
+and committed** on branch `zidoo-external-player`.
+
+## Back from the Zidoo player — resolved (build zidoo9, 2026-11-22)
+
+`playback/ExternalPlayer.kt` `buildIntent` adds `FLAG_ACTIVITY_CLEAR_TOP` and
+`FLAG_ACTIVITY_RESET_TASK_IF_NEEDED`. These are the same flags JellyfinToZidoo uses (`Play.java`).
+Back from the Zidoo player now returns to BitStreamer. The test-only version bump was reverted.
+
+Not explicitly confirmed yet: the **resume test** in Zidoo mode (does a hand-off with `start=…`
+start there, and is the stop position stored?).
 
 ## What was built
 
@@ -465,3 +473,37 @@ already in the manifest.
   ones, and the internal player is always available.
 - **The 9529 API may require Control Center validation to be off.** Polling is best-effort; the
   result `position` is the main source.
+
+## DV7 on firmware 1.3.75 (2026-11-22)
+
+- **Auto HDR10 fallback off:** `PlayerActivity.DV7_AUTO_HDR10_FALLBACK = false`. A DV decode
+  failure now logs `auto HDR10 fallback disabled` and shows a DV error screen (plan, decoder,
+  codecs, cause chain) instead of silently retrying as HDR10. Use the menu's Strip DV option to
+  play as HDR10.
+- **Convert to DV8 relabel restored:** on non-Fire-TV devices, CONVERT_P8 relabels the decoder
+  codecs `dvhe.07.xx` → `dvhe.08.xx` again (`PlayerFactory.relabelDvCodecsP7ToP8`, logged as
+  `CONVERT_P8: decoder codecs relabelled`). Without the relabel, the Amlogic decoder rejects the
+  converted stream (log 2026-11-22 10:54: plan=CONVERT_P8, `dvhe.07.06`, IllegalStateException).
+  The relabel caused flashing on fw 1.3.45; this re-tests it on 1.3.75.
+
+### Convert to DV8 rewrite (2026-11-22) — verified on Zidoo and Fire TV
+
+The relabel alone brought the flashing back on fw 1.3.75. Reading the library's native source
+(`libdovi-android/src/lib.rs` on GitHub; unchanged since 2026-06-18, so 0.4.1 has the same code)
+showed how it rewrites frames: the converted RPU is shorter, so it pads the gap **after the RPU**
+with a filler NAL (type 38) or with zero bytes. It also leaves the EL (NAL 63) in the frame, never
+relabels the codecs, and throws if the first RPU won't parse. Its `getRpuFrameInfo` loops forever
+on an unparsable RPU.
+
+- `playback/DvP8Converter.kt` replaces `HdrCompatMediaSourceFactory`. Only the library's native
+  `processHevcFrame` (libdovi `convert_with_mode(2)`) is kept. It is fed one isolated RPU NAL,
+  and its output is cut back to that single NAL.
+- Each access unit is rebuilt: NAL 63 dropped, NAL 62 replaced by the converted RPU with no
+  filler, other NALs copied verbatim, 4-byte start codes throughout. A failed conversion keeps
+  the original RPU and is counted.
+- The codecs relabel (`dvhe.07` → `dvhe.08`, non-Fire-TV only) moved from the renderer into
+  `DvP8SampleStream` (the format handed to the renderer).
+- Logs (tag `DvP8`): the first 3 frames in detail (NAL types, RPU size in→out, converted RPU
+  profile/EL), then stats every 2400 frames (converted / failed / no-RPU / EL dropped).
+- **Fire TV impact:** CONVERT_P8 is Fire TV's automatic P7 path. It now also gets the EL dropped
+  and no filler (codecs unchanged). Re-test a P7 title on the Fire TV.

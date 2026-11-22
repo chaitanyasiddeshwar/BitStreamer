@@ -1138,12 +1138,15 @@ class PlayerActivity : Activity() {
     private fun tryDvHdr10Fallback(error: PlaybackException): Boolean {
         if (dvHdr10FallbackTried || srcStripDV || srcDvProfile != 7) return false
         if (com.bitstreamer.client.playback.DtsCoreAudioSink.isFireTv()) return false
-        val decodeError = error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
-            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-            error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
-            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
-            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
-        if (!decodeError) return false
+        if (!isVideoDecodeError(error)) return false
+        if (!DV7_AUTO_HDR10_FALLBACK) {
+            // Testing mode: no silent retry. onPlayerError shows the error on
+            // screen; Strip DV / Convert to DV8 / Play in Zidoo player are in the
+            // launch menu.
+            RemoteLog.d(TAG, "DV P7 decode failed (plan=$dvPlan, decoder=$videoDecoderName); " +
+                "auto HDR10 fallback disabled - showing error")
+            return false
+        }
         dvHdr10FallbackTried = true
         val dialogWasShowing = resumeDialog?.isShowing == true
         resumeDialog?.dismiss()
@@ -1167,6 +1170,13 @@ class PlayerActivity : Activity() {
         }
         return true
     }
+
+    private fun isVideoDecodeError(error: PlaybackException): Boolean =
+        error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
 
     private fun releasePlayer() {
         mainHandler.removeCallbacks(retryPlayback)
@@ -1487,6 +1497,28 @@ class PlayerActivity : Activity() {
     }
 
     private fun showError(error: PlaybackException) {
+        if (srcDvProfile > 0 && isVideoDecodeError(error)) {
+            errorView.text = buildString {
+                append("Dolby Vision playback failed: ${error.errorCodeName}\n\n")
+                append("Source: DV profile $srcDvProfile    Plan: $dvPlan\n")
+                append("Decoder: $videoDecoderName\n")
+                append("Codecs: ${player?.videoFormat?.codecs ?: "?"}\n\n")
+                var c: Throwable? = error.cause
+                var depth = 0
+                while (c != null && depth < 4) {
+                    append("${c.javaClass.simpleName}: ${c.message ?: ""}\n")
+                    c = c.cause; depth++
+                }
+                append("\nPress Back and pick another option from the play menu: ")
+                append("Strip DV (HDR10), Convert to DV8, or Play Normally")
+                if (com.bitstreamer.client.playback.ExternalPlayer.findComponent(this@PlayerActivity) != null) {
+                    append(", or set Player: Zidoo for full Dolby Vision")
+                }
+                append(".")
+            }
+            errorView.visibility = View.VISIBLE
+            return
+        }
         val audioMime = player?.audioFormat?.sampleMimeType
         errorView.text = getString(
             R.string.playback_error,
@@ -1502,6 +1534,9 @@ class PlayerActivity : Activity() {
         private const val TAG = "PlayerActivity"
         /** Second Back must land within this window to exit (matches Toast.LENGTH_SHORT). */
         private const val EXIT_CONFIRM_WINDOW_MS = 2000L
+        /** DV7 decode failure on non-Fire-TV: retry once as HDR10 (true) or show the
+         *  error so every DV path can be tested from the menu (false, for now). */
+        private const val DV7_AUTO_HDR10_FALLBACK = false
         const val EXTRA_URL = "url"
         const val EXTRA_TITLE = "title"
         const val EXTRA_FOLDER_MODE = "folderMode"

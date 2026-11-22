@@ -36,10 +36,6 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 
-import com.suyashbelekar.exoplayerhdrutils.exoplayer.source.HdrCompatMediaSourceFactory
-import com.suyashbelekar.exoplayerhdrutils.video.transformers.DoviStrategy
-import com.suyashbelekar.exoplayerhdrutils.video.transformers.Hdr10PlusStrategy
-import com.suyashbelekar.exoplayerhdrutils.video.transformers.TransformStrategy
 
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 
@@ -231,6 +227,20 @@ object PlayerFactory {
     private fun isAmlogicDv(caps: DvCaps): Boolean =
         caps.dvDecoderName?.lowercase()?.contains("amlogic") == true
 
+    /**
+     * CONVERT_P8 on non-Fire-TV devices: the stream reaching the decoder is
+     * single-layer 8.1, so declare it as such ("dvhe.07.xx" -> "dvhe.08.xx").
+     * Applied by DvP8SampleStream to the format it hands the renderer. Amlogic's
+     * DV decoder rejects the converted stream while it is still labelled
+     * Profile 7; Fire TV's MTK decoder is left untouched.
+     */
+    fun relabelDvCodecsP7ToP8(format: Format): Format {
+        val codecs = format.codecs ?: return format
+        if (format.sampleMimeType != MimeTypes.VIDEO_DOLBY_VISION) return format
+        val relabelled = codecs.replace(Regex("""(dvhe|dvh1)\.07\."""), "$1.08.")
+        return if (relabelled == codecs) format else format.buildUpon().setCodecs(relabelled).build()
+    }
+
     fun mapFormat(format: Format, fallbackToHdr10: Boolean): Format {
         if (fallbackToHdr10 && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) {
             return format.buildUpon()
@@ -262,7 +272,7 @@ object PlayerFactory {
         if (fallbackToHdr10) {
             Log.i("PlayerFactory", "Dolby Vision fallback active: forcing fallback to standard HEVC (HDR10)")
         } else if (convertDv8) {
-            Log.i("PlayerFactory", "Dolby Vision Profile 7 to Profile 8.1 conversion active via ExoplayerHdrUtils HdrCompatMediaSourceFactory")
+            Log.i("PlayerFactory", "Dolby Vision Profile 7 to Profile 8.1 conversion active (DvP8MediaSourceFactory)")
         }
 
         // EXTENSION_RENDERER_MODE_OFF: no software decoders that could outrank
@@ -322,13 +332,11 @@ object PlayerFactory {
         val defaultMediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
 
+        // CONVERT_P8: see DvP8Converter.kt. Codecs are relabelled dvhe.07 -> dvhe.08
+        // on non-Fire-TV devices only (Amlogic rejects the converted stream while
+        // it is still labelled Profile 7; Fire TV's MTK decoder is left as it was).
         val mediaSourceFactory = if (convertDv8) {
-            val transformStrategy = TransformStrategy(
-                doviP7Fel = DoviStrategy.CONVERT_TO_P8,
-                doviP7Mel = DoviStrategy.CONVERT_TO_P8,
-                doviHdr10Plus = Hdr10PlusStrategy.DISCARD
-            )
-            HdrCompatMediaSourceFactory(defaultMediaSourceFactory, transformStrategy)
+            DvP8MediaSourceFactory(defaultMediaSourceFactory, relabelCodecs = !DtsCoreAudioSink.isFireTv())
         } else {
             defaultMediaSourceFactory
         }

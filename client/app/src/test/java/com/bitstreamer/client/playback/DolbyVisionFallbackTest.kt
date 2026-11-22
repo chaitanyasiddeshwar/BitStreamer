@@ -161,6 +161,20 @@ class DolbyVisionFallbackTest {
     }
 
     @Test
+    fun testMapFormat_RelabelP7ToP8() {
+        val p7 = Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.07.06")
+            .build()
+        val mapped = PlayerFactory.relabelDvCodecsP7ToP8(p7)
+        assertEquals(MimeTypes.VIDEO_DOLBY_VISION, mapped.sampleMimeType)
+        assertEquals("dvhe.08.06", mapped.codecs)
+
+        val p8 = p7.buildUpon().setCodecs("dvhe.08.06").build()
+        assertEquals("dvhe.08.06", PlayerFactory.relabelDvCodecsP7ToP8(p8).codecs)
+    }
+
+    @Test
     fun testMapFormat_NonDolbyVisionFormatUntouched() {
         val hevcFormat = Format.Builder()
             .setSampleMimeType(MimeTypes.VIDEO_H265)

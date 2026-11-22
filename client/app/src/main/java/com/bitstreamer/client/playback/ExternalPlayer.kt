@@ -84,6 +84,10 @@ object ExternalPlayer {
         Intent(Intent.ACTION_VIEW).apply {
             setDataAndTypeAndNormalize(Uri.parse(url), "video/*")
             setClassName(component.packageName, component.className)
+            // Same launch flags as JellyfinToZidoo, whose users return to the
+            // launching app after closing the Zidoo player.
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
             putExtra("title", title)
             if (startMs > 0) {
                 putExtra("from_start", false)
