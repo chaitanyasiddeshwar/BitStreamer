@@ -486,7 +486,7 @@ already in the manifest.
   converted stream (log 2026-11-22 10:54: plan=CONVERT_P8, `dvhe.07.06`, IllegalStateException).
   The relabel caused flashing on fw 1.3.45; this re-tests it on 1.3.75.
 
-### Convert to DV8 rewrite (2026-11-22) — verified on Zidoo and Fire TV
+### Convert to DV8 rewrite (2026-11-22) — verified on the Zidoo; Fire TV re-test pending
 
 The relabel alone brought the flashing back on fw 1.3.75. Reading the library's native source
 (`libdovi-android/src/lib.rs` on GitHub; unchanged since 2026-06-18, so 0.4.1 has the same code)
@@ -506,4 +506,9 @@ on an unparsable RPU.
 - Logs (tag `DvP8`): the first 3 frames in detail (NAL types, RPU size in→out, converted RPU
   profile/EL), then stats every 2400 frames (converted / failed / no-RPU / EL dropped).
 - **Fire TV impact:** CONVERT_P8 is Fire TV's automatic P7 path. It now also gets the EL dropped
-  and no filler (codecs unchanged). Re-test a P7 title on the Fire TV.
+  and no filler (codecs unchanged). The 11:33 Fire TV run was still on build zidoo8 (old library
+  glue), so **re-test a P7 title on the Fire TV with this build**. Expect `DvP8 frame 1..3` lines
+  and no `codecs relabelled` line.
+- **Zidoo result (zidoo9, 11:23–11:25, Aquaman and Predator Badlands):** `codecs relabelled
+  dvhe.07.06 -> dvhe.08.06`. Every logged frame has its RPU converted (~220 → ~180 bytes,
+  `profile=8 el=NONE`), 11–18 EL NALs dropped per frame, rpuFailed=0, and no flashing.
