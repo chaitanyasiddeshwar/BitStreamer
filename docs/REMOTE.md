@@ -11,7 +11,7 @@ handles them in `PlayerActivity.dispatchKeyEvent` and via Media3's `PlayerView` 
 | **Menu (≡)** | `KEYCODE_MENU` | ✅ Yes | The dedicated "options" button. Free — the player doesn't otherwise use it. |
 | D-pad up/down/left/right | `KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT` | ✅ (navigation) | Focus movement + seek-bar scrub. |
 | Select / OK | `KEYCODE_DPAD_CENTER` | ✅ (confirm) | Play/pause, confirm selections. |
-| Back | `KEYCODE_BACK` | ✅ | Hide controls, then exit. |
+| Back | `KEYCODE_BACK` | ✅ | Hide controls, then exit (press twice to exit). |
 | Play/Pause | `KEYCODE_MEDIA_PLAY_PAUSE` | ✅ (transport) | Handled by the player. |
 | Rewind / Fast-forward | `KEYCODE_MEDIA_REWIND` / `KEYCODE_MEDIA_FAST_FORWARD` | ✅ (transport) | Seek back/forward. |
 | Home | `KEYCODE_HOME` | ❌ | Reserved by Fire OS — always returns to the launcher. |
@@ -37,7 +37,7 @@ apps can't intercept.
 | Rewind / Fast-forward | Seek −10 s / +30 s |
 | D-pad down (from seek bar) | Move to the Audio / Subtitles / Chapters / Stats icon row; down again opens Chapters |
 | **Menu (≡)** | Toggle the "stats for nerds" overlay (also the Stats icon) |
-| Back | Hide the controls if shown; otherwise stop and exit (playback position is saved for resume) |
+| Back | Hide the controls if shown; otherwise shows "Press Back again to exit" — a second Back within 2 s stops and exits (playback position is saved for resume) |
 
 Notes:
 - **No center transport cluster**: the middle-of-screen rewind / play-pause / fast-forward

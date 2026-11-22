@@ -1151,7 +1151,13 @@ class PlayerActivity : Activity() {
         val pos = player?.currentPosition ?: 0L
         RemoteLog.d(TAG, "DV P7 decode failed (plan=$dvPlan); retrying once as HDR10 (DV stripped) " +
             "at ${if (dialogWasShowing) "resume prompt" else "${pos}ms"}")
-        android.widget.Toast.makeText(this, "Dolby Vision 7 not supported here — playing as HDR10", android.widget.Toast.LENGTH_LONG).show()
+        // The device itself may play DV7 fine (Zidoo 1.3.75+ does FEL in its own
+        // player); it's BitStreamer's MediaCodec path that can't. Say so.
+        val msg = if (com.bitstreamer.client.playback.ExternalPlayer.findComponent(this) != null)
+            "Dolby Vision 7 isn't supported by BitStreamer's player — playing as HDR10.\nFor full Dolby Vision, set Player: Zidoo."
+        else
+            "Dolby Vision 7 isn't supported by BitStreamer's player — playing as HDR10."
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
         releasePlayer()
         srcStripDV = true
         mainHandler.post {
@@ -1254,8 +1260,25 @@ class PlayerActivity : Activity() {
         if (previewProgressOverlay?.visibility == View.VISIBLE) {
             return
         }
+        // Only reached when Back would leave the player (overlay-hiding Backs are
+        // consumed in dispatchKeyEvent; pickers/dialogs handle their own Back).
+        // Require a second press within the window so a stray Back — e.g. one
+        // meant to close the controls that had already timed out — can't exit.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastExitBackMs > EXIT_CONFIRM_WINDOW_MS) {
+            lastExitBackMs = now
+            exitToast?.cancel()
+            exitToast = android.widget.Toast.makeText(this, "Press Back again to exit", android.widget.Toast.LENGTH_SHORT)
+                .also { it.show() }
+            return
+        }
+        exitToast?.cancel()
+        exitToast = null
         super.onBackPressed()
     }
+
+    private var lastExitBackMs = 0L
+    private var exitToast: android.widget.Toast? = null
 
     private fun logTracks(tracks: Tracks) {
         tracks.groups.forEachIndexed { i, group ->
@@ -1477,6 +1500,8 @@ class PlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "PlayerActivity"
+        /** Second Back must land within this window to exit (matches Toast.LENGTH_SHORT). */
+        private const val EXIT_CONFIRM_WINDOW_MS = 2000L
         const val EXTRA_URL = "url"
         const val EXTRA_TITLE = "title"
         const val EXTRA_FOLDER_MODE = "folderMode"
